@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { baseName, dirName, VaultFile, Workspace } from '../types';
 import * as S from '../store';
 import ContextMenu, { MenuState } from './ContextMenu';
+import Prompt, { PromptState } from './Prompt';
 
 interface TreeNode {
   rel: string;
@@ -41,6 +42,7 @@ export default function Sidebar({ ws, onFlash }: { ws: Workspace; onFlash: (m: s
   const [query, setQuery] = useState('');
   const [renaming, setRenaming] = useState<string | null>(null);
   const [menu, setMenu] = useState<MenuState | null>(null);
+  const [prompt, setPrompt] = useState<PromptState | null>(null);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
 
   const tree = useMemo(() => buildTree(ws), [ws.files, ws.dirs]);
@@ -111,12 +113,19 @@ export default function Sidebar({ ws, onFlash }: { ws: Workspace; onFlash: (m: s
       },
       {
         label: 'New folder…',
-        run: async () => {
-          const name = prompt('Folder name');
-          if (!name) return;
-          const res = await S.createFolder(`${rel ? rel + '/' : ''}${name}`);
-          if (!res.ok) onFlash(`Could not create folder: ${res.error}`);
-        },
+        run: () =>
+          setPrompt({
+            title: 'New folder',
+            hint: rel ? `Inside ${rel}` : 'At the top level of the vault',
+            value: '',
+            placeholder: 'Projects',
+            confirmLabel: 'Create',
+            onSubmit: async (name) => {
+              if (!name.trim()) return;
+              const res = await S.createFolder(`${rel ? rel + '/' : ''}${name.trim()}`);
+              if (!res.ok) onFlash(`Could not create folder: ${res.error}`);
+            },
+          }),
       },
     ],
   });
@@ -294,6 +303,7 @@ export default function Sidebar({ ws, onFlash }: { ws: Workspace; onFlash: (m: s
       </div>
 
       {menu && <ContextMenu state={menu} onClose={() => setMenu(null)} />}
+      {prompt && <Prompt state={prompt} onClose={() => setPrompt(null)} />}
     </aside>
   );
 }

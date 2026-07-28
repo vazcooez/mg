@@ -32,7 +32,16 @@ export default function ContextMenu({ state, onClose }: { state: MenuState; onCl
   }, [state.x, state.y]);
 
   useEffect(() => {
-    const close = () => onClose();
+    /*
+     * Registered in the capture phase so it beats other handlers — which also
+     * means it runs before the menu button's own listeners. A pointerdown
+     * inside the menu must therefore be ignored here, or the menu would unmount
+     * before the click could ever reach the item.
+     */
+    const close = (e: Event) => {
+      if (ref.current?.contains(e.target as Node)) return;
+      onClose();
+    };
     const key = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
     window.addEventListener('pointerdown', close, true);
     window.addEventListener('blur', close);
@@ -55,7 +64,6 @@ export default function ContextMenu({ state, onClose }: { state: MenuState; onCl
             type="button"
             className={`ctx-item${entry.disabled ? ' disabled' : ''}${entry.danger ? ' danger' : ''}`}
             disabled={entry.disabled}
-            onPointerDown={(e) => e.stopPropagation()}
             onClick={() => {
               entry.run?.();
               onClose();

@@ -6,11 +6,13 @@ import {
   sizeToWeight,
   STATUS_COLOR,
   STATUS_LABEL,
+  STATUSES,
   TodoDoc,
   TodoItem,
   weightToSize,
 } from '../types';
 import * as S from '../store';
+import PropertyInput from './PropertyInput';
 
 interface Props {
   doc: TodoDoc;
@@ -465,22 +467,25 @@ function Card({
   const color = S.resolveColor(doc.items, item);
   const inherited = !item.color;
   const depth = S.depthOf(doc.items, item.id);
+  const defs = S.propertyDefsOf(doc);
 
   return (
     <div
       className={`ecard${selected ? ' selected' : ''}${item.status === 'done' ? ' done' : ''}${
         inherited ? ' inherited' : ''
-      }`}
+      }${editing ? ' editing' : ''}`}
       style={{
         left: `${left}%`,
         top: `${top}%`,
-        width: size,
-        height: size,
+        // While editing the card grows into a form, so it drops its fixed box.
+        width: editing ? undefined : size,
+        height: editing ? undefined : size,
         // Larger cards sit underneath so small ones stay clickable.
-        zIndex: selected ? 999 : 200 - Math.round(item.weight * 10),
+        zIndex: editing ? 1000 : selected ? 999 : 200 - Math.round(item.weight * 10),
         ['--card-color' as string]: color,
-        // Every inner size is in em, so type scales with the card.
-        fontSize: `${12 * zoom}px`,
+        // Every inner size is in em, so type scales with the card. The editor
+        // stays at a fixed, readable size whatever the zoom.
+        fontSize: editing ? '12px' : `${12 * zoom}px`,
       }}
       onPointerDown={onPointerDown}
       onDoubleClick={(e) => {
@@ -498,32 +503,92 @@ function Card({
       </div>
 
       {editing ? (
-        <input
-          className="ecard-edit"
-          autoFocus
-          defaultValue={item.title}
+        <div
+          className="ecard-editor"
+          // Keep every gesture inside the form: no dragging the card by its own editor.
           onPointerDown={(e) => e.stopPropagation()}
-          onBlur={(e) => {
-            S.updateItem(doc.id, item.id, { title: e.target.value.trim() || 'Untitled' });
-            onEditDone();
-          }}
+          onDoubleClick={(e) => e.stopPropagation()}
           onKeyDown={(e) => {
-            if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
             if (e.key === 'Escape') onEditDone();
             e.stopPropagation();
           }}
-        />
+        >
+          <textarea
+            className="ecard-edit"
+            autoFocus
+            rows={2}
+            value={item.title}
+            placeholder="Title"
+            spellCheck={false}
+            onChange={(e) =>
+              S.updateItem(doc.id, item.id, { title: e.target.value }, `t:${item.id}`)
+            }
+            onKeyDown={(e) => {
+              // Titles are single-line; Enter commits rather than inserting one.
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                onEditDone();
+              }
+            }}
+          />
+
+          <label className="ecard-field">
+            <span>Status</span>
+            <select
+              value={item.status}
+              onChange={(e) =>
+                S.updateItem(doc.id, item.id, { status: e.target.value as TodoItem['status'] })
+              }
+            >
+              {STATUSES.map((s) => (
+                <option key={s} value={s}>
+                  {STATUS_LABEL[s]}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="ecard-field">
+            <span>Assignee</span>
+            <input
+              value={item.assignee}
+              placeholder="Unassigned"
+              spellCheck={false}
+              onChange={(e) =>
+                S.updateItem(doc.id, item.id, { assignee: e.target.value }, `a:${item.id}`)
+              }
+            />
+          </label>
+
+          {defs.map((def) => (
+            <label className="ecard-field" key={def.name}>
+              <span title={def.name}>{def.name}</span>
+              <PropertyInput doc={doc} item={item} def={def} className="" />
+            </label>
+          ))}
+
+          <div className="ecard-editor-foot">
+            <span className="ecard-metrics">
+              U{fmt(item.urgency)} · I{fmt(item.importance)} · W{fmt(item.weight)}
+            </span>
+            <button type="button" className="ghost-btn" onClick={onEditDone}>
+              Done
+            </button>
+          </div>
+        </div>
       ) : (
-        <div className="ecard-title">{item.title}</div>
+        <>
+          <div className="ecard-title">{item.title}</div>
+
+          <div className="ecard-foot">
+            <span title={STATUS_LABEL[item.status]}>U{fmt(item.urgency)}</span>
+            <span>I{fmt(item.importance)}</span>
+            <span>W{fmt(item.weight)}</span>
+          </div>
+
+          <div className="card-resize" onPointerDown={onResizeDown} title="Drag to change weight" />
+        </>
       )}
-
-      <div className="ecard-foot">
-        <span title={STATUS_LABEL[item.status]}>U{fmt(item.urgency)}</span>
-        <span>I{fmt(item.importance)}</span>
-        <span>W{fmt(item.weight)}</span>
-      </div>
-
-      <div className="card-resize" onPointerDown={onResizeDown} title="Drag to change weight" />
     </div>
   );
 }

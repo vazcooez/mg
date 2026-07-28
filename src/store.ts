@@ -1796,6 +1796,22 @@ export function movePropertyColumn(docId: string, key: string, dir: -1 | 1) {
   });
 }
 
+/** Drops a property column at an arbitrary position (header drag-and-drop). */
+export function reorderPropertyColumn(docId: string, key: string, toIndex: number) {
+  updateTodo(docId, (d) => {
+    const defs = propertyDefsOf(d);
+    const from = defs.findIndex((def) => def.name === key);
+    if (from < 0) return d;
+    const next = defs.slice();
+    const [moved] = next.splice(from, 1);
+    // Removing first shifts everything after `from` left by one.
+    const target = clamp(from < toIndex ? toIndex - 1 : toIndex, 0, next.length);
+    next.splice(target, 0, moved);
+    if (next.every((def, i) => def === defs[i])) return d;
+    return { ...d, propertyDefs: next };
+  });
+}
+
 /* --------------------------------------------------------------- lookups */
 
 export function findDoc(ws: Workspace, id: string | null): Doc | null {

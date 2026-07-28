@@ -7,7 +7,6 @@ import {
   NUMBER_DISPLAYS,
   PROPERTY_TYPE_LABEL,
   PROPERTY_TYPES,
-  PropertyDef,
   PropertyType,
   round1,
   STATUS_COLOR,
@@ -17,58 +16,7 @@ import {
   TodoItem,
 } from '../types';
 import * as S from '../store';
-
-/** Value editor matching a property's declared type. */
-function PropertyInput({ doc, item, def }: { doc: TodoDoc; item: TodoItem; def: PropertyDef }) {
-  const raw = item.properties[def.name] ?? '';
-  const set = (v: string) => S.setItemProperty(doc.id, item.id, def.name, v);
-
-  if (def.type === 'number') {
-    return (
-      <input
-        className="prop-value"
-        type="number"
-        value={raw}
-        placeholder="—"
-        onChange={(e) => set(e.target.value)}
-      />
-    );
-  }
-  if (def.type === 'date') {
-    return (
-      <input
-        className="prop-value"
-        type="date"
-        value={/^\d{4}-\d{2}-\d{2}$/.test(raw.trim()) ? raw.trim() : ''}
-        onChange={(e) => set(e.target.value)}
-      />
-    );
-  }
-  if (def.type === 'select') {
-    const options = def.options ?? [];
-    const missing = raw.trim() && !options.includes(raw.trim());
-    return (
-      <select className="prop-value" value={raw.trim()} onChange={(e) => set(e.target.value)}>
-        <option value="">—</option>
-        {missing && <option value={raw.trim()}>{raw.trim()} (not an option)</option>}
-        {options.map((o) => (
-          <option key={o} value={o}>
-            {o}
-          </option>
-        ))}
-      </select>
-    );
-  }
-  return (
-    <input
-      className="prop-value"
-      value={raw}
-      placeholder="—"
-      spellCheck={false}
-      onChange={(e) => set(e.target.value)}
-    />
-  );
-}
+import PropertyInput from './PropertyInput';
 
 export default function Inspector({
   doc,

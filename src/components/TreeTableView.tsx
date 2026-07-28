@@ -18,6 +18,7 @@ import {
 import * as S from '../store';
 import { fraction, Range, rangeOf, scaleStyle } from '../scale';
 import ContextMenu, { MenuEntry, MenuState } from './ContextMenu';
+import Prompt, { PromptState } from './Prompt';
 
 interface Props {
   doc: TodoDoc;
@@ -47,6 +48,10 @@ export default function TreeTableView({ doc, theme, selectedId, onSelect }: Prop
   const dragId = useRef<string | null>(null);
   const colRefs = useRef<Record<string, HTMLTableColElement | null>>({});
   const [resizing, setResizing] = useState<string | null>(null);
+  const [prompt, setPrompt] = useState<PromptState | null>(null);
+  /** Property column being dragged by its header, and the slot it would land in. */
+  const dragCol = useRef<string | null>(null);
+  const [colDropAt, setColDropAt] = useState<number | null>(null);
 
   const defs = useMemo(() => S.propertyDefsOf(doc), [doc]);
   const sort = doc.sort ?? null;
@@ -171,47 +176,63 @@ export default function TreeTableView({ doc, theme, selectedId, onSelect }: Prop
       if (col.def.type === 'select') {
         entries.push({
           label: 'Edit options…',
-          run: () => {
-            const next = prompt(
-              `Options for "${name}" (comma separated)`,
-              (col.def!.options ?? []).join(', ')
-            );
-            if (next != null) S.setPropertyOptions(doc.id, name, next.split(','));
-          },
+          run: () =>
+            setPrompt({
+              title: `Options for “${name}”`,
+              hint: 'Comma separated. Existing values that are no longer options stay put and are flagged.',
+              value: (col.def!.options ?? []).join(', '),
+              placeholder: 'Draft, Review, Done',
+              onSubmit: (v) => S.setPropertyOptions(doc.id, name, v.split(',')),
+            }),
         });
       }
       if (col.def.type === 'number') {
         entries.push({
           label: 'Set bar/scale range…',
-          run: () => {
-            const next = prompt(
-              `Range for "${name}" as min,max — blank to use the data range`,
-              col.def!.min != null || col.def!.max != null
-                ? `${col.def!.min ?? ''},${col.def!.max ?? ''}`
-                : ''
-            );
-            if (next == null) return;
-            const [lo, hi] = next.split(',').map((s) => Number(s.trim()));
-            S.setPropertyBounds(
-              doc.id,
-              name,
-              Number.isFinite(lo) ? lo : undefined,
-              Number.isFinite(hi) ? hi : undefined
-            );
-          },
+          run: () =>
+            setPrompt({
+              title: `Range for “${name}”`,
+              hint: 'As min,max — leave blank to scale to the values in the column.',
+              value:
+                col.def!.min != null || col.def!.max != null
+                  ? `${col.def!.min ?? ''},${col.def!.max ?? ''}`
+                  : '',
+              placeholder: '0,100',
+              onSubmit: (v) => {
+                const [lo, hi] = v.split(',').map((s) => Number(s.trim()));
+                S.setPropertyBounds(
+                  doc.id,
+                  name,
+                  Number.isFinite(lo) ? lo : undefined,
+                  Number.isFinite(hi) ? hi : undefined
+                );
+              },
+            }),
         });
       }
+      const at = defs.findIndex((d) => d.name === name);
       entries.push(
         { separator: true },
         {
           label: 'Rename property…',
-          run: () => {
-            const next = prompt('Property name', name);
-            if (next) S.renamePropertyColumn(doc.id, name, next);
-          },
+          run: () =>
+            setPrompt({
+              title: 'Rename property',
+              value: name,
+              confirmLabel: 'Rename',
+              onSubmit: (v) => S.renamePropertyColumn(doc.id, name, v),
+            }),
         },
-        { label: 'Move left', run: () => S.movePropertyColumn(doc.id, name, -1) },
-        { label: 'Move right', run: () => S.movePropertyColumn(doc.id, name, 1) },
+        {
+          label: 'Move column left',
+          disabled: at <= 0,
+          run: () => S.movePropertyColumn(doc.id, name, -1),
+        },
+        {
+          label: 'Move column right',
+          disabled: at < 0 || at >= defs.length - 1,
+          run: () => S.movePropertyColumn(doc.id, name, 1),
+        },
         {
           label: 'Remove property',
           danger: true,
@@ -384,11 +405,50 @@ export default function TreeTableView({ doc, theme, selectedId, onSelect }: Prop
             >
               {columns.map((col, i) => {
                 const sorted = sort?.key === col.key;
+                const propIndex = col.def ? defs.findIndex((d) => d.name === col.def!.name) : -1;
+                const dropSide =
+                  col.def && colDropAt != null
+                    ? colDropAt === propIndex
+                      ? 'before'
+                      : colDropAt === propIndex + 1 && propIndex === defs.length - 1
+                        ? 'after'
+                        : ''
+                    : '';
                 return (
                   <th
                     key={col.key}
-                    className={`${col.className}${sorted ? ' sorted' : ''}`}
+                    className={`${col.className}${sorted ? ' sorted' : ''}${
+                      col.def ? ' draggable-col' : ''
+                    }${dropSide ? ` drop-${dropSide}` : ''}`}
                     title={col.title ?? col.label}
+                    // Property columns reorder by dragging their header.
+                    draggable={Boolean(col.def)}
+                    onDragStart={(e) => {
+                      if (!col.def) return;
+                      dragCol.current = col.def.name;
+                      e.dataTransfer.effectAllowed = 'move';
+                      e.dataTransfer.setData('text/plain', col.def.name);
+                    }}
+                    onDragEnd={() => {
+                      dragCol.current = null;
+                      setColDropAt(null);
+                    }}
+                    onDragOver={(e) => {
+                      if (!dragCol.current || propIndex < 0) return;
+                      e.preventDefault();
+                      e.stopPropagation();
+                      const r = e.currentTarget.getBoundingClientRect();
+                      setColDropAt(e.clientX < r.left + r.width / 2 ? propIndex : propIndex + 1);
+                    }}
+                    onDrop={(e) => {
+                      const name = dragCol.current;
+                      if (!name || colDropAt == null) return;
+                      e.preventDefault();
+                      e.stopPropagation();
+                      S.reorderPropertyColumn(doc.id, name, colDropAt);
+                      dragCol.current = null;
+                      setColDropAt(null);
+                    }}
                     onContextMenu={(e) => {
                       if (col.fixed) return;
                       e.preventDefault();
@@ -679,6 +739,7 @@ export default function TreeTableView({ doc, theme, selectedId, onSelect }: Prop
       </div>
 
       {menu && <ContextMenu state={menu} onClose={() => setMenu(null)} />}
+      {prompt && <Prompt state={prompt} onClose={() => setPrompt(null)} />}
     </div>
   );
 }
