@@ -33,6 +33,11 @@ export interface TodoItem {
   status: ItemStatus;
   /** Long-form markdown notes for the item. */
   description: string;
+  /**
+   * Card proportions on the matrix (width / height). Weight stays the card's
+   * *area*, so a card can be reshaped without changing what it weighs.
+   */
+  aspect?: number;
   properties: Record<string, string>;
   collapsed: boolean;
   /** When set, the item is in the document's trash rather than deleted. */
@@ -482,13 +487,30 @@ export function sizeToWeight(size: number): number {
   return round1(clamp(raw, 1, 10));
 }
 
-/** Cards are 2:1 landscape rectangles. */
+/** Default card proportions; each card can be reshaped from here. */
 export const CARD_RATIO = 2;
+export const ASPECT_MIN = 0.35;
+export const ASPECT_MAX = 6;
 
-export function cardBox(weight: number, zoom = 1): { w: number; h: number } {
+/**
+ * Card geometry. `weight` fixes the area and `aspect` the proportions, so
+ * resizing a card freely changes its shape while its weight only follows the
+ * area it covers.
+ */
+export function cardBox(weight: number, zoom = 1, aspect = CARD_RATIO): { w: number; h: number } {
   const mean = weightToSize(weight) * zoom;
-  const h = mean / Math.SQRT2;
-  return { w: h * CARD_RATIO, h };
+  const a = clamp(aspect || CARD_RATIO, ASPECT_MIN, ASPECT_MAX);
+  const h = mean / Math.sqrt(a);
+  return { w: h * a, h };
+}
+
+/** Inverse of `cardBox`: area gives the weight, the ratio gives the aspect. */
+export function boxToWeightAspect(w: number, h: number, zoom = 1): { weight: number; aspect: number } {
+  const mean = Math.sqrt(Math.max(w, 1) * Math.max(h, 1)) / (zoom || 1);
+  return {
+    weight: sizeToWeight(mean),
+    aspect: clamp(w / Math.max(h, 1), ASPECT_MIN, ASPECT_MAX),
+  };
 }
 
 export function clamp(n: number, min: number, max: number): number {

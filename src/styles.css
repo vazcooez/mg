@@ -2270,6 +2270,119 @@ input[type='color']::-webkit-color-swatch {
   font-style: italic;
 }
 
+/* ============================================== codemirror note editor */
+
+.cm-host {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.cm-host .cm-editor {
+  height: 100%;
+}
+
+/* Headings size the whole line, so hidden hashes leave no gap. */
+.cm-heading {
+  font-weight: 650;
+  color: color-mix(in srgb, var(--accent) 55%, var(--text));
+  line-height: 1.35;
+}
+
+.cm-h1 {
+  font-size: 1.8em;
+}
+.cm-h2 {
+  font-size: 1.45em;
+}
+.cm-h3 {
+  font-size: 1.2em;
+}
+.cm-h4,
+.cm-h5,
+.cm-h6 {
+  font-size: 1.05em;
+}
+
+.cm-strong {
+  font-weight: 700;
+}
+
+.cm-em {
+  font-style: italic;
+}
+
+.cm-strike {
+  text-decoration: line-through;
+  color: var(--text-dim);
+}
+
+.cm-mark {
+  background: color-mix(in srgb, var(--warn) 38%, transparent);
+  border-radius: 2px;
+}
+
+.cm-inline-code,
+.cm-mono-tok {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+  background: var(--chrome-dark);
+  border-radius: 3px;
+  padding: 1px 4px;
+}
+
+.cm-code-line {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+  background: color-mix(in srgb, var(--chrome-dark) 70%, transparent);
+}
+
+.cm-quote-line {
+  border-left: 3px solid var(--accent-soft);
+  padding-left: 10px !important;
+  color: var(--text-dim);
+}
+
+.cm-hr-line {
+  color: transparent;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.cm-task-done {
+  color: var(--text-faint);
+  text-decoration: line-through;
+}
+
+.cm-task {
+  accent-color: var(--accent);
+  margin-right: 6px;
+  vertical-align: -1px;
+  cursor: pointer;
+}
+
+.cm-wikilink {
+  color: color-mix(in srgb, var(--accent) 80%, var(--text));
+  border-bottom: 1px dashed color-mix(in srgb, var(--accent) 60%, transparent);
+  cursor: pointer;
+}
+
+.cm-hashtag-inline {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  border-radius: 10px;
+  padding: 1px 6px;
+  color: var(--accent);
+}
+
+.cm-link,
+.cm-link-tok {
+  color: var(--accent);
+  cursor: pointer;
+}
+
+.cm-url-tok {
+  color: var(--text-faint);
+}
+
 /* ------------------------------------------------- live preview editor */
 
 .live-editor {

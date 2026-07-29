@@ -1,16 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  boxToWeightAspect,
   cardBox,
   clamp,
   fmt,
   round1,
-  sizeToWeight,
   STATUS_COLOR,
   STATUS_LABEL,
   STATUSES,
   TodoDoc,
   TodoItem,
-  weightToSize,
 } from '../types';
 import * as S from '../store';
 import PropertyInput from './PropertyInput';
@@ -85,7 +84,8 @@ type Gesture =
       id: string;
       startX: number;
       startY: number;
-      size: number;
+      w: number;
+      h: number;
     };
 
 export default function EisenhowerView({ doc, selectedId, onSelect }: Props) {
@@ -134,11 +134,17 @@ export default function EisenhowerView({ doc, selectedId, onSelect }: Props) {
           `drag:${g.id}`
         );
       } else {
-        // Divide by zoom so a corner drag feels the same at any scale.
-        const delta = (e.clientX - g.startX + (e.clientY - g.startY)) / zoom;
-        let weight = sizeToWeight(g.size + delta);
-        if (snap !== e.altKey) weight = Math.round(weight);
-        S.setMetrics(doc.id, g.id, { weight }, `resize:${g.id}`);
+        // Each edge follows its own axis, so cards are not locked to a ratio.
+        const w = Math.max(28, g.w + (e.clientX - g.startX));
+        const h = Math.max(24, g.h + (e.clientY - g.startY));
+        const { weight, aspect } = boxToWeightAspect(w, h, zoom);
+        S.setCardShape(
+          doc.id,
+          g.id,
+          snap !== e.altKey ? Math.round(weight) : weight,
+          aspect,
+          `resize:${g.id}`
+        );
       }
     };
     const up = () => {
@@ -201,16 +207,18 @@ export default function EisenhowerView({ doc, selectedId, onSelect }: Props) {
       e.stopPropagation();
       e.preventDefault();
       onSelect(item.id);
+      const box = cardBox(item.weight, zoom, item.aspect);
       gesture.current = {
         kind: 'resize',
         id: item.id,
         startX: e.clientX,
         startY: e.clientY,
-        size: weightToSize(item.weight),
+        w: box.w,
+        h: box.h,
       };
       document.body.classList.add('dragging');
     },
-    [onSelect]
+    [onSelect, zoom]
   );
 
   /* ------------------------------------------- keyboard nudge / shortcuts */
@@ -477,7 +485,7 @@ function Card({
   onPointerDown: (e: React.PointerEvent) => void;
   onResizeDown: (e: React.PointerEvent) => void;
 }) {
-  const box = cardBox(item.weight, zoom);
+  const box = cardBox(item.weight, zoom, item.aspect);
   const { left, top } = place(item, geo);
   const color = S.cardColor(doc, item);
   const inherited = !item.color;
@@ -601,12 +609,6 @@ function Card({
       ) : (
         <>
           <div className="ecard-title">{item.title}</div>
-
-          <div className="ecard-foot">
-            <span title={STATUS_LABEL[item.status]}>U{fmt(item.urgency)}</span>
-            <span>I{fmt(item.importance)}</span>
-            <span>W{fmt(item.weight)}</span>
-          </div>
 
           <div className="card-resize" onPointerDown={onResizeDown} title="Drag to change weight" />
         </>

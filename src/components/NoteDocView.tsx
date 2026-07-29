@@ -2,7 +2,7 @@ import { useCallback, useMemo, useRef, useState } from 'react';
 import { NoteDoc, Workspace } from '../types';
 import * as S from '../store';
 import { extractHeadings, extractLinks, renderMarkdown, toggleTask } from '../markdown';
-import LiveMarkdown from './LiveMarkdown';
+import MarkdownEditor from './MarkdownEditor';
 
 export default function NoteDocView({
   ws,
@@ -101,17 +101,26 @@ export default function NoteDocView({
     else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'i') wrap('*');
   };
 
-  const editor = (
-    <textarea
-      ref={editorRef}
-      className={`note-editor${doc.view === 'plain' ? ' plain' : ''}`}
-      value={doc.content}
-      spellCheck={false}
-      placeholder={doc.view === 'plain' ? 'Start typing…' : '# Title\n\nWrite markdown here…'}
-      onChange={(e) => S.setNoteContent(doc.id, e.target.value)}
-      onKeyDown={onEditorKey}
-    />
-  );
+  // Plain text keeps the bare textarea; markdown gets the real editor.
+  const editor =
+    doc.view === 'plain' ? (
+      <textarea
+        ref={editorRef}
+        className="note-editor plain"
+        value={doc.content}
+        spellCheck={false}
+        placeholder="Start typing…"
+        onChange={(e) => S.setNoteContent(doc.id, e.target.value)}
+        onKeyDown={onEditorKey}
+      />
+    ) : (
+      <MarkdownEditor
+        value={doc.content}
+        livePreviewOn={doc.mdMode === 'live'}
+        onChange={(next) => S.setNoteContent(doc.id, next)}
+        onOpenLink={openTarget}
+      />
+    );
 
   const preview = (
     <div className="note-preview markdown-body" onClick={onPreviewClick}>
@@ -193,9 +202,7 @@ export default function NoteDocView({
         <div className="doc-main note-main">
           {doc.view === 'plain' ? (
             editor
-          ) : doc.mdMode === 'live' ? (
-            <LiveMarkdown doc={doc} onOpenLink={openTarget} />
-          ) : doc.mdMode === 'edit' ? (
+          ) : doc.mdMode === 'live' || doc.mdMode === 'edit' ? (
             editor
           ) : doc.mdMode === 'preview' ? (
             preview

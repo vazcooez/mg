@@ -1779,6 +1779,22 @@ export function setMetrics(
 }
 
 /** Moves an item and its descendants to the document's trash. */
+/** Weight (area) and aspect move together when a card is resized. */
+export function setCardShape(
+  docId: string,
+  itemId: string,
+  weight: number,
+  aspect: number,
+  coalesce?: string
+) {
+  updateItem(
+    docId,
+    itemId,
+    { weight: round1(clamp(weight, 1, 10)), aspect: Math.round(aspect * 100) / 100 },
+    coalesce
+  );
+}
+
 export function deleteItem(docId: string, itemId: string) {
   const when = Date.now();
   updateTodo(docId, (d) => {
