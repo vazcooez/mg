@@ -1831,11 +1831,14 @@ export function scheduledItems(doc: TodoDoc): TodoItem[] {
 }
 
 /**
- * Items marked "scheduled" that have not been given a time yet — the queue the
- * calendar's side rail offers up for placing.
+ * The calendar's staging queue: work that lands in the **Schedule** quadrant —
+ * important but not urgent, so it needs a slot rather than immediate action —
+ * and has not been given a time yet.
  */
 export function unscheduledItems(doc: TodoDoc): TodoItem[] {
-  return liveItems(doc).filter((i) => !i.scheduledAt && i.status === 'scheduled');
+  return liveItems(doc).filter(
+    (i) => !i.scheduledAt && quadrantOf(i.urgency, i.importance) === 'schedule'
+  );
 }
 
 /** Sets or clears an item's slot on the calendar. */

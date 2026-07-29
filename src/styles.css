@@ -3191,6 +3191,14 @@ body.dragging .cal-event {
   min-height: 0;
 }
 
+.cal-rail-hint {
+  margin: 0;
+  padding: 6px 10px 0;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--text-faint);
+}
+
 .cal-rail-list {
   flex: 1;
   overflow: auto;

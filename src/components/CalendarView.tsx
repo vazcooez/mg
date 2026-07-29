@@ -239,9 +239,10 @@ export default function CalendarView({ doc, selectedId, onSelect }: Props) {
         <button
           type="button"
           className={`ghost-btn${showRail ? ' on' : ''}`}
+          title="Schedule-quadrant work that has no time yet"
           onClick={() => setShowRail((v) => !v)}
         >
-          Unscheduled ({unscheduled.length})
+          To schedule ({unscheduled.length})
         </button>
         <span className="tb-hint">drag to move · drag the bottom edge to change duration</span>
       </div>
@@ -374,11 +375,14 @@ export default function CalendarView({ doc, selectedId, onSelect }: Props) {
         {showRail && (
           <aside className="cal-rail">
             <div className="inspector-head">
-              <span>Unscheduled</span>
+              <span title="Important but not urgent, and not yet given a time">
+                To schedule
+              </span>
               <button type="button" className="icon-btn" onClick={() => setShowRail(false)}>
                 ⟩
               </button>
             </div>
+            <p className="cal-rail-hint">Schedule quadrant, no time yet.</p>
             <div className="cal-rail-list">
               {unscheduled.map((item) => (
                 <div
@@ -403,7 +407,12 @@ export default function CalendarView({ doc, selectedId, onSelect }: Props) {
                   <span className="cal-rail-title">{item.title}</span>
                 </div>
               ))}
-              {!unscheduled.length && <div className="props-empty">Everything is scheduled.</div>}
+              {!unscheduled.length && (
+                <div className="props-empty">
+                  Nothing waiting. Items land here when they sit in the Schedule quadrant —
+                  important, not urgent — without a time.
+                </div>
+              )}
             </div>
           </aside>
         )}
