@@ -67,6 +67,17 @@ export function uid(prefix = 'i'): string {
 
 /* --------------------------------------------------------------- factory */
 
+/** Today at the next whole hour — a sane default slot for a new item. */
+function defaultScheduleTime(): string {
+  const d = new Date();
+  d.setMinutes(0, 0, 0);
+  d.setHours(d.getHours() + 1);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(
+    d.getMinutes()
+  )}`;
+}
+
 export function makeItem(parentId: string | null, overrides: Partial<TodoItem> = {}): TodoItem {
   return {
     id: uid('it'),
@@ -83,7 +94,7 @@ export function makeItem(parentId: string | null, overrides: Partial<TodoItem> =
     collapsed: false,
     showInMatrix: true,
     deletedAt: null,
-    scheduledAt: null,
+    scheduledAt: defaultScheduleTime(),
     durationMin: DEFAULT_DURATION_MIN,
     ...overrides,
   };
@@ -1819,8 +1830,12 @@ export function scheduledItems(doc: TodoDoc): TodoItem[] {
     .sort((a, b) => (a.scheduledAt ?? '').localeCompare(b.scheduledAt ?? ''));
 }
 
+/**
+ * Items marked "scheduled" that have not been given a time yet — the queue the
+ * calendar's side rail offers up for placing.
+ */
 export function unscheduledItems(doc: TodoDoc): TodoItem[] {
-  return liveItems(doc).filter((i) => !i.scheduledAt);
+  return liveItems(doc).filter((i) => !i.scheduledAt && i.status === 'scheduled');
 }
 
 /** Sets or clears an item's slot on the calendar. */

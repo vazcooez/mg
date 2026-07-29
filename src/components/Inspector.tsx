@@ -192,19 +192,17 @@ export default function Inspector({
               </button>
             )}
           </div>
-          {item.scheduledAt && (
-            <div className="slider-row">
-              <input
-                className="num-input"
-                type="number"
-                min={15}
-                step={15}
-                value={item.durationMin}
-                onChange={(e) => S.setDuration(doc.id, item.id, Number(e.target.value) || 15)}
-              />
-              <span className="field-hint">minutes</span>
-            </div>
-          )}
+          <div className="slider-row">
+            <input
+              className="num-input"
+              type="number"
+              min={15}
+              step={15}
+              value={item.durationMin}
+              onChange={(e) => S.setDuration(doc.id, item.id, Number(e.target.value) || 15)}
+            />
+            <span className="field-hint">minutes long</span>
+          </div>
         </div>
 
         <div className="field">

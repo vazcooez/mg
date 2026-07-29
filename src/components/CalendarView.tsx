@@ -176,7 +176,12 @@ export default function CalendarView({ doc, selectedId, onSelect }: Props) {
         const at = atMinutes(hit.day, Math.min(startMin, MINUTES_PER_DAY - g.duration));
         S.setSchedule(doc.id, g.id, formatLocal(at), undefined, `cal:${g.id}`);
       } else {
-        const minutes = Math.max(MIN_DURATION, snapMinutes(hit.minutes - g.startMin));
+        const live = S.getWorkspace().docs.find((d) => d.id === doc.id);
+        const item =
+          live && live.type === 'todo' ? live.items.find((i) => i.id === g.id) : undefined;
+        const start = parseLocal(item?.scheduledAt);
+        const from = start ? minutesOfDay(start) : g.startMin;
+        const minutes = Math.max(MIN_DURATION, snapMinutes(hit.minutes - from));
         S.setDuration(doc.id, g.id, minutes, `caldur:${g.id}`);
       }
     };
@@ -340,6 +345,10 @@ export default function CalendarView({ doc, selectedId, onSelect }: Props) {
                           title="Drag to change duration"
                           onPointerDown={(e) => {
                             e.stopPropagation();
+                            e.preventDefault();
+                            // Capture so the gesture survives the pointer
+                            // leaving this 10px strip, which it does at once.
+                            e.currentTarget.setPointerCapture(e.pointerId);
                             onSelect(p.item.id);
                             gesture.current = {
                               kind: 'resize',
