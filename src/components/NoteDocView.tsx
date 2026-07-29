@@ -117,6 +117,7 @@ export default function NoteDocView({
       <MarkdownEditor
         value={doc.content}
         livePreviewOn={doc.mdMode === 'live'}
+        theme={ws.theme}
         onChange={(next) => S.setNoteContent(doc.id, next)}
         onOpenLink={openTarget}
       />

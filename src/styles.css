@@ -89,6 +89,13 @@ textarea,
   user-select: text;
 }
 
+/* Selection follows the theme's accent rather than the browser default, which
+   is tuned for a white page and reads wrong on the dark surface. */
+::selection {
+  background: color-mix(in srgb, var(--accent) 42%, transparent);
+  color: var(--text);
+}
+
 /* …but the preview's own interactive bits stay unselectable. */
 .markdown-body a.wikilink,
 .markdown-body a.hashtag,

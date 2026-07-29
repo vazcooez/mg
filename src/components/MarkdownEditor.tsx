@@ -35,39 +35,73 @@ const highlight = HighlightStyle.define([
   { tag: tags.quote, class: 'cm-quote-tok' },
 ]);
 
-const theme = EditorView.theme({
-  '&': { height: '100%', backgroundColor: 'transparent', color: 'var(--text)' },
-  '.cm-scroller': {
-    fontFamily: 'var(--editor-font)',
-    fontSize: 'var(--editor-font-size)',
-    lineHeight: '1.7',
-    padding: '18px 0 40vh',
-  },
-  '.cm-content': { maxWidth: '46rem', margin: '0 auto', padding: '0 28px', caretColor: 'var(--text)' },
-  '.cm-line': { padding: '0 2px' },
-  '&.cm-focused': { outline: 'none' },
-  '.cm-activeLine': { backgroundColor: 'color-mix(in srgb, var(--sel) 18%, transparent)' },
-  '&.cm-focused .cm-selectionBackground, .cm-selectionBackground, ::selection': {
-    backgroundColor: 'color-mix(in srgb, var(--accent) 34%, transparent)',
-  },
-  '.cm-cursor': { borderLeftColor: 'var(--text)', borderLeftWidth: '2px' },
-  '.cm-gutters': { display: 'none' },
-});
+/**
+ * CodeMirror ships light and dark selection defaults behind `&light`/`&dark`
+ * class selectors, which are more specific than a plain `.cm-selectionBackground`
+ * rule — so the overrides below deliberately match that specificity (they win on
+ * source order), and the theme is told which mode it is in so the right default
+ * is the one being overridden in the first place.
+ */
+function buildTheme(dark: boolean) {
+  const selection = 'color-mix(in srgb, var(--accent) 30%, transparent)';
+  const selectionFocused = 'color-mix(in srgb, var(--accent) 42%, transparent)';
+  return EditorView.theme(
+    {
+      '&': { height: '100%', backgroundColor: 'transparent', color: 'var(--text)' },
+      '.cm-scroller': {
+        fontFamily: 'var(--editor-font)',
+        fontSize: 'var(--editor-font-size)',
+        lineHeight: '1.7',
+        padding: '18px 0 40vh',
+      },
+      '.cm-content': {
+        maxWidth: '46rem',
+        margin: '0 auto',
+        padding: '0 28px',
+        caretColor: 'var(--text)',
+      },
+      '.cm-line': { padding: '0 2px' },
+      '&.cm-focused': { outline: 'none' },
+      '.cm-activeLine': { backgroundColor: 'color-mix(in srgb, var(--sel) 16%, transparent)' },
+
+      // Unfocused and focused selection, each at 3-class specificity.
+      '&.cm-editor .cm-selectionBackground': { backgroundColor: selection },
+      '&.cm-focused .cm-selectionBackground': { backgroundColor: selectionFocused },
+      // Native selection still shows through inside widgets and rendered spans.
+      '&.cm-editor .cm-content ::selection': { backgroundColor: selectionFocused },
+      '&.cm-editor .cm-line::selection': { backgroundColor: selectionFocused },
+
+      '.cm-cursor, .cm-dropCursor': { borderLeftColor: 'var(--text)', borderLeftWidth: '2px' },
+      '.cm-gutters': { display: 'none' },
+      '.cm-panels': { backgroundColor: 'var(--chrome)', color: 'var(--text)' },
+      '.cm-searchMatch': {
+        backgroundColor: 'color-mix(in srgb, var(--warn) 35%, transparent)',
+      },
+      '.cm-searchMatch.cm-searchMatch-selected': {
+        backgroundColor: 'color-mix(in srgb, var(--warn) 60%, transparent)',
+      },
+    },
+    { dark }
+  );
+}
 
 export default function MarkdownEditor({
   value,
   livePreviewOn,
+  theme,
   onChange,
   onOpenLink,
 }: {
   value: string;
   livePreviewOn: boolean;
+  theme: 'dark' | 'light';
   onChange: (next: string) => void;
   onOpenLink: (target: string) => void;
 }) {
   const host = useRef<HTMLDivElement>(null);
   const view = useRef<EditorView | null>(null);
   const preview = useRef(new Compartment());
+  const themeComp = useRef(new Compartment());
   // Kept in refs so the editor is created once and never torn down mid-typing.
   const onChangeRef = useRef(onChange);
   const onOpenRef = useRef(onOpenLink);
@@ -98,7 +132,7 @@ export default function MarkdownEditor({
           ...historyKeymap,
           ...searchKeymap,
         ]),
-        theme,
+        themeComp.current.of(buildTheme(theme === 'dark')),
         EditorView.updateListener.of((u) => {
           if (u.docChanged) onChangeRef.current(u.state.doc.toString());
         }),
@@ -152,6 +186,13 @@ export default function MarkdownEditor({
       effects: preview.current.reconfigure(livePreviewOn ? livePreview : []),
     });
   }, [livePreviewOn]);
+
+  // Switching light/dark re-themes the editor in place.
+  useEffect(() => {
+    view.current?.dispatch({
+      effects: themeComp.current.reconfigure(buildTheme(theme === 'dark')),
+    });
+  }, [theme]);
 
   return <div className="cm-host" ref={host} />;
 }
