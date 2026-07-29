@@ -31,8 +31,12 @@ export interface TodoItem {
   /** `null` means "inherit from parent" (falling back to the default accent). */
   color: string | null;
   status: ItemStatus;
+  /** Long-form markdown notes for the item. */
+  description: string;
   properties: Record<string, string>;
   collapsed: boolean;
+  /** When set, the item is in the document's trash rather than deleted. */
+  deletedAt: number | null;
   /**
    * Whether this item gets a card in the Eisenhower matrix. Grouping parents
    * are often structure rather than work, so they can be kept off the board
@@ -99,8 +103,45 @@ export interface MatrixAxes {
 
 export const DEFAULT_AXES: MatrixAxes = { swap: false, flipX: false, flipY: false };
 
-export type TodoView = 'matrix' | 'tree';
+export type TodoView = 'matrix' | 'tree' | 'trash';
 export type NoteView = 'plain' | 'markdown';
+
+/* ------------------------------------------------------------- quadrant */
+
+/**
+ * The Eisenhower quadrant an item falls in. Derived from urgency and
+ * importance rather than stored, so it can never drift out of step with the
+ * board — and is therefore never editable.
+ */
+export type Quadrant = 'do' | 'delegate' | 'schedule' | 'drop';
+
+export const QUADRANT_LABEL: Record<Quadrant, string> = {
+  do: 'Do now',
+  delegate: 'Delegate',
+  schedule: 'Schedule',
+  drop: 'Drop',
+};
+
+/** Midpoint of the 1-10 scales. */
+export const QUADRANT_MID = 5.5;
+
+export function quadrantOf(urgency: number, importance: number): Quadrant {
+  const urgent = urgency >= QUADRANT_MID;
+  const important = importance >= QUADRANT_MID;
+  if (important && urgent) return 'do';
+  if (important) return 'schedule';
+  if (urgent) return 'delegate';
+  return 'drop';
+}
+
+export const QUADRANT_ORDER: Quadrant[] = ['do', 'schedule', 'delegate', 'drop'];
+
+export const QUADRANT_COLOR: Record<Quadrant, string> = {
+  do: '#e05d5d',
+  schedule: '#6699cc',
+  delegate: '#e0a24d',
+  drop: '#8b9aa8',
+};
 
 /** Everything tying an open buffer to a file in the vault. */
 export interface DocFile {
@@ -129,6 +170,10 @@ export interface TodoDoc extends DocFile {
    * column or dragging a column edge never dirties the buffer.
    */
   view: TodoView;
+  /** Display order of every column, built-ins included. */
+  columnOrder?: string[];
+  /** What drives card colour on the matrix: own colour, or a property. */
+  colorBy?: string;
   /** Column widths in px, keyed by column id (`prop:<name>` for properties). */
   columnWidths?: Record<string, number>;
   /** Display mode for the built-in numeric columns. */
@@ -183,7 +228,72 @@ export interface NoteDoc extends DocFile {
   updatedAt: number;
 }
 
-export type Doc = TodoDoc | NoteDoc;
+/* -------------------------------------------------------------- diagrams */
+
+export type NodeShape = 'rect' | 'round' | 'ellipse' | 'diamond';
+
+export const NODE_SHAPES: NodeShape[] = ['rect', 'round', 'ellipse', 'diamond'];
+
+export const NODE_SHAPE_LABEL: Record<NodeShape, string> = {
+  rect: 'Rectangle',
+  round: 'Rounded',
+  ellipse: 'Ellipse',
+  diamond: 'Diamond',
+};
+
+export interface DiagramNode {
+  id: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  text: string;
+  shape: NodeShape;
+  color: string;
+}
+
+export type EdgeStyle = 'solid' | 'dashed';
+export type EdgeArrow = 'end' | 'both' | 'none';
+
+/** Which side of a node an edge attaches to; `auto` picks the nearest. */
+export type Port = 'auto' | 'top' | 'right' | 'bottom' | 'left';
+
+export interface DiagramEdge {
+  id: string;
+  from: string;
+  to: string;
+  label: string;
+  style: EdgeStyle;
+  arrow: EdgeArrow;
+  fromPort: Port;
+  toPort: Port;
+}
+
+export interface DiagramDoc extends DocFile {
+  id: string;
+  type: 'diagram';
+  title: string;
+  nodes: DiagramNode[];
+  edges: DiagramEdge[];
+  /* Window state. */
+  zoom?: number;
+  panX?: number;
+  panY?: number;
+  snap?: boolean;
+  createdAt: number;
+  updatedAt: number;
+}
+
+/** The three document kinds, as used for file extensions and icons. */
+export type DocKindName = 'todo' | 'note' | 'diagram';
+
+export const DIAGRAM_EXT = '.mgdiagram';
+
+export const NODE_DEFAULT_W = 150;
+export const NODE_DEFAULT_H = 66;
+export const GRID = 10;
+
+export type Doc = TodoDoc | NoteDoc | DiagramDoc;
 
 /* ------------------------------------------------- sublime-style layout */
 
@@ -282,7 +392,7 @@ export const SETTING_BOUNDS: Record<keyof Omit<Settings, 'editorFont'>, [number,
 export interface VaultFile {
   rel: string;
   name: string;
-  type: 'todo' | 'note';
+  type: DocKindName;
   mtime: number;
 }
 
@@ -311,7 +421,7 @@ export const TODO_EXT = '.mgtodo';
 
 export function baseName(rel: string): string {
   const name = rel.split('/').pop() ?? rel;
-  return name.replace(/\.(md|mgtodo)$/i, '');
+  return name.replace(/\.(md|mgtodo|mgdiagram)$/i, '');
 }
 
 export function dirName(rel: string): string {
@@ -346,6 +456,7 @@ export const COLOR_PRESETS = [
 export const MIN_CARD = 76;
 export const MAX_CARD = 176;
 
+/** Geometric mean of the card's edges — weight drives area, not one edge. */
 export function weightToSize(weight: number): number {
   const w = clamp(weight, 1, 10);
   return MIN_CARD + ((w - 1) / 9) * (MAX_CARD - MIN_CARD);
@@ -354,6 +465,15 @@ export function weightToSize(weight: number): number {
 export function sizeToWeight(size: number): number {
   const raw = 1 + ((size - MIN_CARD) / (MAX_CARD - MIN_CARD)) * 9;
   return round1(clamp(raw, 1, 10));
+}
+
+/** Cards are 2:1 landscape rectangles. */
+export const CARD_RATIO = 2;
+
+export function cardBox(weight: number, zoom = 1): { w: number; h: number } {
+  const mean = weightToSize(weight) * zoom;
+  const h = mean / Math.SQRT2;
+  return { w: h * CARD_RATIO, h };
 }
 
 export function clamp(n: number, min: number, max: number): number {

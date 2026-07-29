@@ -9,7 +9,7 @@ interface Ok {
 export interface VaultFile {
   rel: string;
   name: string;
-  type: 'todo' | 'note';
+  type: 'todo' | 'note' | 'diagram';
   mtime: number;
 }
 
@@ -42,7 +42,7 @@ declare global {
         write(data: unknown): Promise<Ok>;
       };
       dialog: {
-        savePath(name: string, type: 'todo' | 'note'): Promise<Ok & { rel?: string }>;
+        savePath(name: string, type: 'todo' | 'note' | 'diagram'): Promise<Ok & { rel?: string }>;
         confirmClose(title: string): Promise<{ choice: 'save' | 'discard' | 'cancel' }>;
         message(message: string, detail?: string): Promise<Ok>;
       };

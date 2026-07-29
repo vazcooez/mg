@@ -2,6 +2,9 @@ import { useCallback, useMemo, useRef, useState } from 'react';
 import {
   clamp,
   fmt,
+  QUADRANT_COLOR,
+  QUADRANT_LABEL,
+  quadrantOf,
   minColumnWidth,
   NUMBER_DISPLAY_LABEL,
   NUMBER_DISPLAYS,
@@ -19,6 +22,7 @@ import * as S from '../store';
 import { fraction, Range, rangeOf, scaleStyle } from '../scale';
 import ContextMenu, { MenuEntry, MenuState } from './ContextMenu';
 import Prompt, { PromptState } from './Prompt';
+import PropertyInput from './PropertyInput';
 
 interface Props {
   doc: TodoDoc;
@@ -49,6 +53,8 @@ export default function TreeTableView({ doc, theme, selectedId, onSelect }: Prop
   const colRefs = useRef<Record<string, HTMLTableColElement | null>>({});
   const [resizing, setResizing] = useState<string | null>(null);
   const [prompt, setPrompt] = useState<PromptState | null>(null);
+  /** Row whose title input should take focus once it renders. */
+  const [focusItem, setFocusItem] = useState<string | null>(null);
   /** Property column being dragged by its header, and the slot it would land in. */
   const dragCol = useRef<string | null>(null);
   const [colDropAt, setColDropAt] = useState<number | null>(null);
@@ -57,32 +63,37 @@ export default function TreeTableView({ doc, theme, selectedId, onSelect }: Prop
   const sort = doc.sort ?? null;
 
   const rows = useMemo(
-    () => S.flattenTree(doc.items, true, sort ? S.itemComparator(doc, sort) : undefined),
+    () => S.flattenTree(S.liveItems(doc), true, sort ? S.itemComparator(doc, sort) : undefined),
     [doc, sort]
   );
 
-  const columns = useMemo<Column[]>(
-    () => [
-      { key: 'matrix', label: '◧', title: 'Show on the matrix', className: 'col-matrix', sortable: true },
-      { key: 'title', label: 'Item', className: 'col-title', sortable: true },
-      { key: 'status', label: 'Status', className: 'col-status', sortable: true },
-      { key: 'assignee', label: 'Assignee', className: 'col-assignee', sortable: true },
-      { key: 'urgency', label: 'Urg', className: 'col-num', numeric: true, sortable: true },
-      { key: 'importance', label: 'Imp', className: 'col-num', numeric: true, sortable: true },
-      { key: 'weight', label: 'Wgt', className: 'col-num', numeric: true, sortable: true },
-      { key: 'color', label: 'Color', className: 'col-color', sortable: true },
-      ...defs.map((def) => ({
-        key: `prop:${def.name}`,
-        label: def.name,
+  const columns = useMemo<Column[]>(() => {
+    const spec: Record<string, Omit<Column, 'key'>> = {
+      matrix: { label: '◧', title: 'Show on the matrix', className: 'col-matrix', sortable: true },
+      title: { label: 'Item', className: 'col-title', sortable: true },
+      quadrant: { label: 'Quadrant', title: 'Derived from urgency and importance', className: 'col-quadrant', sortable: true },
+      status: { label: 'Status', className: 'col-status', sortable: true },
+      assignee: { label: 'Assignee', className: 'col-assignee', sortable: true },
+      urgency: { label: 'Urg', className: 'col-num', numeric: true, sortable: true },
+      importance: { label: 'Imp', className: 'col-num', numeric: true, sortable: true },
+      weight: { label: 'Wgt', className: 'col-num', numeric: true, sortable: true },
+      color: { label: 'Color', className: 'col-color', sortable: true },
+    };
+    const byName = new Map(defs.map((d) => [d.name, d]));
+    const cols = S.orderedColumnKeys(doc).map((key): Column => {
+      if (spec[key]) return { key, ...spec[key] };
+      const def = byName.get(key.slice(5));
+      return {
+        key,
+        label: def?.name ?? key.slice(5),
         def,
         className: 'col-prop',
-        numeric: def.type === 'number',
+        numeric: def?.type === 'number',
         sortable: true,
-      })),
-      { key: 'actions', label: '', className: 'col-actions', fixed: true },
-    ],
-    [defs]
-  );
+      };
+    });
+    return [...cols, { key: 'actions', label: '', className: 'col-actions', fixed: true }];
+  }, [doc, defs]);
 
   const widths = columns.map((c) => S.columnWidth(doc, c.key));
   const tableWidth = widths.reduce((a, b) => a + b, 0);
@@ -140,6 +151,7 @@ export default function TreeTableView({ doc, theme, selectedId, onSelect }: Prop
   /* --------------------------------------------------------- header menu */
 
   const headerMenu = (col: Column, x: number, y: number): MenuState => {
+    const order = S.orderedColumnKeys(doc);
     const entries: MenuEntry[] = [
       { label: 'Sort ascending', run: () => S.setSort(doc.id, { key: col.key, dir: 'asc' }) },
       { label: 'Sort descending', run: () => S.setSort(doc.id, { key: col.key, dir: 'desc' }) },
@@ -150,6 +162,17 @@ export default function TreeTableView({ doc, theme, selectedId, onSelect }: Prop
       },
       { separator: true },
       { label: 'Reset width', run: () => S.resetColumnWidth(doc.id, col.key) },
+      {
+        label: 'Move column left',
+        disabled: order.indexOf(col.key) <= 0,
+        run: () => S.moveColumn(doc.id, col.key, order.indexOf(col.key) - 1),
+      },
+      {
+        label: 'Move column right',
+        disabled: order.indexOf(col.key) >= order.length - 1,
+        run: () => S.moveColumn(doc.id, col.key, order.indexOf(col.key) + 2),
+      },
+      { label: 'Reset column order', run: () => S.resetColumnOrder(doc.id) },
     ];
 
     if (col.numeric) {
@@ -210,7 +233,6 @@ export default function TreeTableView({ doc, theme, selectedId, onSelect }: Prop
             }),
         });
       }
-      const at = defs.findIndex((d) => d.name === name);
       entries.push(
         { separator: true },
         {
@@ -222,16 +244,6 @@ export default function TreeTableView({ doc, theme, selectedId, onSelect }: Prop
               confirmLabel: 'Rename',
               onSubmit: (v) => S.renamePropertyColumn(doc.id, name, v),
             }),
-        },
-        {
-          label: 'Move column left',
-          disabled: at <= 0,
-          run: () => S.movePropertyColumn(doc.id, name, -1),
-        },
-        {
-          label: 'Move column right',
-          disabled: at < 0 || at >= defs.length - 1,
-          run: () => S.movePropertyColumn(doc.id, name, 1),
         },
         {
           label: 'Remove property',
@@ -286,6 +298,9 @@ export default function TreeTableView({ doc, theme, selectedId, onSelect }: Prop
         label: 'Delete (with children)',
         danger: true,
         run: () => {
+          const kids = S.descendantIds(doc.items, item.id).length;
+          const what = kids ? `"${item.title}" and ${kids} descendant${kids === 1 ? '' : 's'}` : `"${item.title}"`;
+          if (!confirm(`Move ${what} to this document's trash?`)) return;
           S.deleteItem(doc.id, item.id);
           if (selectedId === item.id) onSelect(null);
         },
@@ -300,7 +315,10 @@ export default function TreeTableView({ doc, theme, selectedId, onSelect }: Prop
       else S.indentItem(doc.id, item.id);
     } else if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      onSelect(S.addItem(doc.id, item.parentId));
+      // Focus follows the new row, so you can keep typing down the list.
+      const id = S.addItem(doc.id, item.parentId);
+      onSelect(id);
+      setFocusItem(id);
     } else if (e.altKey && e.key === 'ArrowUp' && !sort) {
       e.preventDefault();
       S.moveItem(doc.id, item.id, -1);
@@ -405,12 +423,11 @@ export default function TreeTableView({ doc, theme, selectedId, onSelect }: Prop
             >
               {columns.map((col, i) => {
                 const sorted = sort?.key === col.key;
-                const propIndex = col.def ? defs.findIndex((d) => d.name === col.def!.name) : -1;
                 const dropSide =
-                  col.def && colDropAt != null
-                    ? colDropAt === propIndex
+                  !col.fixed && colDropAt != null
+                    ? colDropAt === i
                       ? 'before'
-                      : colDropAt === propIndex + 1 && propIndex === defs.length - 1
+                      : colDropAt === i + 1 && i === columns.length - 2
                         ? 'after'
                         : ''
                     : '';
@@ -421,31 +438,31 @@ export default function TreeTableView({ doc, theme, selectedId, onSelect }: Prop
                       col.def ? ' draggable-col' : ''
                     }${dropSide ? ` drop-${dropSide}` : ''}`}
                     title={col.title ?? col.label}
-                    // Property columns reorder by dragging their header.
-                    draggable={Boolean(col.def)}
+                    // Any column reorders by dragging its header.
+                    draggable={!col.fixed}
                     onDragStart={(e) => {
-                      if (!col.def) return;
-                      dragCol.current = col.def.name;
+                      if (col.fixed) return;
+                      dragCol.current = col.key;
                       e.dataTransfer.effectAllowed = 'move';
-                      e.dataTransfer.setData('text/plain', col.def.name);
+                      e.dataTransfer.setData('text/plain', col.label);
                     }}
                     onDragEnd={() => {
                       dragCol.current = null;
                       setColDropAt(null);
                     }}
                     onDragOver={(e) => {
-                      if (!dragCol.current || propIndex < 0) return;
+                      if (!dragCol.current || col.fixed) return;
                       e.preventDefault();
                       e.stopPropagation();
                       const r = e.currentTarget.getBoundingClientRect();
-                      setColDropAt(e.clientX < r.left + r.width / 2 ? propIndex : propIndex + 1);
+                      setColDropAt(e.clientX < r.left + r.width / 2 ? i : i + 1);
                     }}
                     onDrop={(e) => {
-                      const name = dragCol.current;
-                      if (!name || colDropAt == null) return;
+                      const key = dragCol.current;
+                      if (!key || colDropAt == null) return;
                       e.preventDefault();
                       e.stopPropagation();
-                      S.reorderPropertyColumn(doc.id, name, colDropAt);
+                      S.moveColumn(doc.id, key, colDropAt);
                       dragCol.current = null;
                       setColDropAt(null);
                     }}
@@ -567,6 +584,13 @@ export default function TreeTableView({ doc, theme, selectedId, onSelect }: Prop
                       />
                       <input
                         className="cell-input title-input"
+                        ref={(el) => {
+                          if (el && focusItem === item.id) {
+                            el.focus();
+                            el.select();
+                            setFocusItem(null);
+                          }
+                        }}
                         value={item.title}
                         onChange={(e) => S.updateItem(doc.id, item.id, { title: e.target.value }, `t:${item.id}`)}
                         onKeyDown={(e) => onRowKey(e, item)}
@@ -574,6 +598,16 @@ export default function TreeTableView({ doc, theme, selectedId, onSelect }: Prop
                         spellCheck={false}
                       />
                     </div>
+                  </td>
+
+                  <td className="col-quadrant">
+                    <span
+                      className="quadrant-chip"
+                      style={{ ['--chip' as string]: QUADRANT_COLOR[quadrantOf(item.urgency, item.importance)] }}
+                      title="Derived from urgency and importance — not editable"
+                    >
+                      {QUADRANT_LABEL[quadrantOf(item.urgency, item.importance)]}
+                    </span>
                   </td>
 
                   <td className="col-status">
@@ -714,9 +748,14 @@ export default function TreeTableView({ doc, theme, selectedId, onSelect }: Prop
                     <button
                       type="button"
                       className="row-btn danger"
-                      title="Delete with children"
+                      title="Move to trash"
                       onClick={(e) => {
                         e.stopPropagation();
+                        const kids = S.descendantIds(doc.items, item.id).length;
+                        const what = kids
+                          ? `"${item.title}" and ${kids} descendant${kids === 1 ? '' : 's'}`
+                          : `"${item.title}"`;
+                        if (!confirm(`Move ${what} to this document's trash?`)) return;
                         S.deleteItem(doc.id, item.id);
                         if (selectedId === item.id) onSelect(null);
                       }}
@@ -754,39 +793,47 @@ export default function TreeTableView({ doc, theme, selectedId, onSelect }: Prop
 function NumberCell({
   display,
   value,
+  raw,
   range,
   theme,
   min,
   max,
   step,
   onCommit,
+  onText,
 }: {
   display: 'digit' | 'bar' | 'scale';
   value: number | null;
+  /** Present for custom properties, which edit as free text. */
+  raw?: string;
   range: Range;
   theme: 'dark' | 'light';
   min?: number;
   max?: number;
   step?: number;
-  onCommit: (n: number) => void;
+  onCommit?: (n: number) => void;
+  onText?: (v: string) => void;
 }) {
   const has = value != null && Number.isFinite(value);
   const f = has ? fraction(value!, range) : 0;
   const tint = has && display === 'scale' ? scaleStyle(value!, range, theme) : null;
+  const asText = Boolean(onText);
 
   return (
     <td className={`col-num num-cell ${display}`} style={tint ? { background: tint.background } : undefined}>
       <input
         className="cell-input num"
-        type="number"
-        min={min}
-        max={max}
-        step={step ?? 'any'}
-        value={has ? fmt(value!) : ''}
+        type={asText ? 'text' : 'number'}
+        min={asText ? undefined : min}
+        max={asText ? undefined : max}
+        step={asText ? undefined : step ?? 'any'}
+        placeholder="—"
+        value={asText ? (raw ?? '') : has ? fmt(value!) : ''}
         style={tint ? { color: tint.color } : undefined}
         onChange={(e) => {
+          if (onText) return onText(e.target.value);
           const n = Number(e.target.value);
-          if (e.target.value !== '' && Number.isFinite(n)) onCommit(n);
+          if (e.target.value !== '' && Number.isFinite(n)) onCommit?.(n);
         }}
       />
       {display === 'bar' && has && (
@@ -822,57 +869,17 @@ function PropertyCell({
       <NumberCell
         display={def.display ?? 'digit'}
         value={n != null && Number.isFinite(n) ? n : null}
+        raw={raw}
         range={range ?? { min: 0, max: 1 }}
         theme={theme}
-        onCommit={(v) => set(String(v))}
+        onText={set}
       />
-    );
-  }
-
-  if (def.type === 'date') {
-    return (
-      <td className="col-prop">
-        <input
-          className="cell-input date"
-          type="date"
-          value={/^\d{4}-\d{2}-\d{2}$/.test(raw.trim()) ? raw.trim() : ''}
-          onChange={(e) => set(e.target.value)}
-        />
-      </td>
-    );
-  }
-
-  if (def.type === 'select') {
-    const options = def.options ?? [];
-    const missing = raw.trim() && !options.includes(raw.trim());
-    return (
-      <td className="col-prop">
-        <select
-          className={`cell-select${missing ? ' missing' : ''}`}
-          value={raw.trim()}
-          onChange={(e) => set(e.target.value)}
-        >
-          <option value="">—</option>
-          {missing && <option value={raw.trim()}>{raw.trim()} (not an option)</option>}
-          {options.map((o) => (
-            <option key={o} value={o}>
-              {o}
-            </option>
-          ))}
-        </select>
-      </td>
     );
   }
 
   return (
     <td className="col-prop">
-      <input
-        className="cell-input"
-        value={raw}
-        placeholder="—"
-        onChange={(e) => set(e.target.value)}
-        spellCheck={false}
-      />
+      <PropertyInput doc={doc} item={item} def={def} className="cell-input" />
     </td>
   );
 }

@@ -112,6 +112,9 @@ export default function App() {
         case 'new-note':
           S.createNoteDoc();
           break;
+        case 'new-diagram':
+          S.createDiagramDoc();
+          break;
         case 'save':
           void save();
           break;
@@ -348,6 +351,7 @@ export default function App() {
     const list: PaletteEntry[] = [
       { id: 'c:new-note', label: 'File: New Free Note', detail: 'Ctrl+N', run: () => S.createNoteDoc() },
       { id: 'c:new-todo', label: 'File: New Todo Document', detail: 'Ctrl+T', run: () => S.createTodoDoc() },
+      { id: 'c:new-diagram', label: 'File: New Diagram', run: () => S.createDiagramDoc() },
       { id: 'c:save', label: 'File: Save', detail: 'Ctrl+S', run: () => void save() },
       { id: 'c:save-as', label: 'File: Save As…', detail: 'Ctrl+Shift+S', run: () => void saveAs() },
       { id: 'c:save-all', label: 'File: Save All', detail: 'Ctrl+Alt+S', run: () => void saveAll() },
@@ -417,7 +421,8 @@ export default function App() {
         },
         { id: 'c:add-item', label: 'Todo: Add Root Item', run: () => S.addItem(activeDoc.id, null) },
         { id: 'c:expand', label: 'Todo: Expand All', run: () => S.setAllCollapsed(activeDoc.id, false) },
-        { id: 'c:collapse', label: 'Todo: Collapse All', run: () => S.setAllCollapsed(activeDoc.id, true) }
+        { id: 'c:collapse', label: 'Todo: Collapse All', run: () => S.setAllCollapsed(activeDoc.id, true) },
+        { id: 'c:view-trash', label: 'View: Trash', run: () => S.setTodoView(activeDoc.id, 'trash') }
       );
     }
     if (activeDoc?.type === 'note') {

@@ -7,7 +7,10 @@ const fsp = fs.promises;
 
 const NOTE_EXT = '.md';
 const TODO_EXT = '.mgtodo';
-const KNOWN_EXT = [NOTE_EXT, TODO_EXT];
+const DIAGRAM_EXT = '.mgdiagram';
+const KNOWN_EXT = [NOTE_EXT, TODO_EXT, DIAGRAM_EXT];
+
+const EXT_KIND = { [TODO_EXT]: 'todo', [DIAGRAM_EXT]: 'diagram', [NOTE_EXT]: 'note' };
 const CONFIG_DIR = '.mg';
 const SESSION_FILE = 'session.json';
 
@@ -100,7 +103,7 @@ async function listVault() {
         files.push({
           rel,
           name: entry.name,
-          type: path.extname(entry.name).toLowerCase() === TODO_EXT ? 'todo' : 'note',
+          type: EXT_KIND[path.extname(entry.name).toLowerCase()] ?? 'note',
           mtime,
         });
       }
@@ -225,14 +228,16 @@ async function writeSession(data) {
 /** Save-As restricted to the vault; returns a vault-relative path. */
 async function pickSavePath(win, defaultName, type) {
   const root = await getVault();
-  const ext = type === 'todo' ? TODO_EXT : NOTE_EXT;
+  const ext = type === 'todo' ? TODO_EXT : type === 'diagram' ? DIAGRAM_EXT : NOTE_EXT;
+  const filters = {
+    todo: [{ name: 'MG todo document', extensions: ['mgtodo'] }],
+    diagram: [{ name: 'MG diagram', extensions: ['mgdiagram'] }],
+    note: [{ name: 'Markdown', extensions: ['md'] }],
+  };
   const res = await dialog.showSaveDialog(win, {
     title: 'Save in vault',
     defaultPath: path.join(root, defaultName.endsWith(ext) ? defaultName : defaultName + ext),
-    filters:
-      type === 'todo'
-        ? [{ name: 'MG todo document', extensions: ['mgtodo'] }]
-        : [{ name: 'Markdown', extensions: ['md'] }],
+    filters: filters[type] ?? filters.note,
   });
   if (res.canceled || !res.filePath) return { ok: false, canceled: true };
 
@@ -277,6 +282,7 @@ async function confirmClose(win, title) {
 module.exports = {
   NOTE_EXT,
   TODO_EXT,
+  DIAGRAM_EXT,
   CONFIG_DIR,
   getVault,
   setVault,

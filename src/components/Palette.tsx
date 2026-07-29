@@ -4,7 +4,7 @@ export interface PaletteEntry {
   id: string;
   label: string;
   detail?: string;
-  kind?: 'todo' | 'note';
+  kind?: 'todo' | 'note' | 'diagram';
   run: () => void;
 }
 

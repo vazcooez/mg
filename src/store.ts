@@ -1,8 +1,20 @@
 import { useSyncExternalStore } from 'react';
+import { fraction, rampStep, rangeOf } from './scale';
 import {
   baseName,
   clamp,
+  COLOR_PRESETS,
   DEFAULT_AXES,
+  DIAGRAM_EXT,
+  DiagramDoc,
+  DiagramEdge,
+  DiagramNode,
+  NODE_DEFAULT_H,
+  NODE_DEFAULT_W,
+  Port,
+  QUADRANT_COLOR,
+  quadrantOf,
+  STATUS_COLOR,
   DEFAULT_COLOR,
   DEFAULT_SETTINGS,
   defaultColumnWidth,
@@ -63,11 +75,87 @@ export function makeItem(parentId: string | null, overrides: Partial<TodoItem> =
     weight: 5,
     color: null,
     status: 'planned',
+    description: '',
     properties: {},
     collapsed: false,
     showInMatrix: true,
+    deletedAt: null,
     ...overrides,
   };
+}
+
+/* ------------------------------------------------------------ trash view */
+
+/** Items still in play — everything the matrix and tree show. */
+export function liveItems(doc: TodoDoc): TodoItem[] {
+  return doc.items.filter((i) => i.deletedAt == null);
+}
+
+/** Roots of the trash: a trashed item whose parent is not itself trashed. */
+export function trashedRoots(doc: TodoDoc): TodoItem[] {
+  const trashed = new Set(doc.items.filter((i) => i.deletedAt != null).map((i) => i.id));
+  return doc.items.filter(
+    (i) => i.deletedAt != null && !(i.parentId && trashed.has(i.parentId))
+  );
+}
+
+export function trashCount(doc: TodoDoc): number {
+  return doc.items.reduce((n, i) => n + (i.deletedAt == null ? 0 : 1), 0);
+}
+
+/* ------------------------------------------------------- card colouring */
+
+/**
+ * Colour of a card. `colorBy` can point at a property: option values get a
+ * stable hue each, numbers map onto the sequential ramp.
+ */
+export function cardColor(doc: TodoDoc, item: TodoItem): string {
+  const by = doc.colorBy;
+  if (!by || by === 'own') return resolveColor(doc.items, item);
+  if (by === 'status') return STATUS_COLOR[item.status];
+  if (by === 'quadrant') return QUADRANT_COLOR[quadrantOf(item.urgency, item.importance)];
+  if (!by.startsWith('prop:')) return resolveColor(doc.items, item);
+
+  const name = by.slice(5);
+  const def = propertyDef(doc, name);
+  const raw = (item.properties[name] ?? '').trim();
+  if (!raw) return '#6b7885';
+
+  if (def.type === 'number') {
+    const values = liveItems(doc).map((i) => numericValue(doc, i, by));
+    const range = rangeOf(values, { min: def.min, max: def.max });
+    const n = Number(raw);
+    if (!Number.isFinite(n)) return '#6b7885';
+    return rampStep(fraction(n, range), state.theme);
+  }
+  // Options and free text: a stable hue per distinct value.
+  const options = def.options?.length ? def.options : [...new Set(
+    liveItems(doc).map((i) => (i.properties[name] ?? '').trim()).filter(Boolean)
+  )].sort();
+  const at = options.indexOf(raw);
+  return COLOR_PRESETS[(at < 0 ? hashString(raw) : at) % COLOR_PRESETS.length];
+}
+
+function hashString(s: string): number {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+  return h;
+}
+
+export function setColorBy(docId: string, by: string) {
+  updateTodo(docId, (d) => ({ ...d, colorBy: by }), { noHistory: true });
+}
+
+/** Colour-by choices available for a document. */
+export function colorByOptions(doc: TodoDoc): Array<{ key: string; label: string }> {
+  return [
+    { key: 'own', label: 'Item colour' },
+    { key: 'quadrant', label: 'Quadrant' },
+    { key: 'status', label: 'Status' },
+    ...propertyDefsOf(doc)
+      .filter((d) => d.type === 'select' || d.type === 'number' || d.type === 'text')
+      .map((d) => ({ key: `prop:${d.name}`, label: d.name })),
+  ];
 }
 
 export function makeTodoDoc(title = 'Untitled todo'): TodoDoc {
@@ -115,8 +203,39 @@ export function makeNoteDoc(title = 'Untitled note', content = ''): NoteDoc {
  * vault stays readable by Obsidian; todo documents use pretty-printed JSON
  * under the app's own `.mgtodo` extension.
  */
+export function makeDiagramDoc(title = 'Untitled diagram'): DiagramDoc {
+  const now = Date.now();
+  const doc: DiagramDoc = {
+    id: uid('doc'),
+    type: 'diagram',
+    title,
+    nodes: [],
+    edges: [],
+    zoom: 1,
+    panX: 0,
+    panY: 0,
+    snap: true,
+    path: null,
+    saved: null,
+    mtime: null,
+    createdAt: now,
+    updatedAt: now,
+  };
+  doc.saved = serializeDoc(doc);
+  return doc;
+}
+
 export function serializeDoc(doc: Doc): string {
   if (doc.type === 'note') return doc.content;
+  if (doc.type === 'diagram') {
+    return (
+      JSON.stringify(
+        { format: 'mg-diagram', version: 1, title: doc.title, nodes: doc.nodes, edges: doc.edges },
+        null,
+        2
+      ) + '\n'
+    );
+  }
   // `view`, sort, axes and column sizing are intentionally absent: they are
   // window state, and writing them here would mark the buffer dirty whenever
   // the user merely looked at the document differently.
@@ -136,16 +255,32 @@ export function serializeDoc(doc: Doc): string {
 }
 
 /** Rebuilds a document body from file (or buffer) text. */
+export type DocKind = 'todo' | 'note' | 'diagram';
+
 export function parseDocBody(
-  type: 'todo' | 'note',
+  type: DocKind,
   title: string,
   text: string
-): Omit<TodoDoc, keyof DocFile | 'id' | 'createdAt' | 'updatedAt'> | Omit<
-  NoteDoc,
-  keyof DocFile | 'id' | 'createdAt' | 'updatedAt'
-> {
+):
+  | Omit<TodoDoc, keyof DocFile | 'id' | 'createdAt' | 'updatedAt'>
+  | Omit<NoteDoc, keyof DocFile | 'id' | 'createdAt' | 'updatedAt'>
+  | Omit<DiagramDoc, keyof DocFile | 'id' | 'createdAt' | 'updatedAt'> {
   if (type === 'note') {
     return { type: 'note', title, content: text, view: 'markdown', mdMode: 'live' };
+  }
+  if (type === 'diagram') {
+    let data: Partial<DiagramDoc> = {};
+    try {
+      data = JSON.parse(text) as Partial<DiagramDoc>;
+    } catch {
+      data = {};
+    }
+    return {
+      type: 'diagram',
+      title: data.title || title,
+      nodes: (data.nodes ?? []).filter((n) => n && typeof n.id === 'string'),
+      edges: (data.edges ?? []).filter((e) => e && typeof e.id === 'string'),
+    };
   }
   type LegacyTodo = Partial<TodoDoc> & { propertyColumns?: string[] };
   let data: LegacyTodo = {};
@@ -192,8 +327,18 @@ export function isDirty(doc: Doc): boolean {
   return serializeDoc(doc) !== doc.saved;
 }
 
-export function extForType(type: 'todo' | 'note'): string {
-  return type === 'todo' ? TODO_EXT : NOTE_EXT;
+export function extForType(type: DocKind): string {
+  if (type === 'todo') return TODO_EXT;
+  if (type === 'diagram') return DIAGRAM_EXT;
+  return NOTE_EXT;
+}
+
+/** Which document kind a vault path holds. */
+export function kindForPath(rel: string): DocKind {
+  const lower = rel.toLowerCase();
+  if (lower.endsWith(TODO_EXT)) return 'todo';
+  if (lower.endsWith(DIAGRAM_EXT)) return 'diagram';
+  return 'note';
 }
 
 /* ------------------------------------------------------------ tree utils */
@@ -620,19 +765,8 @@ function seedDocs(): Doc[] {
     color: '#9aa3b5',
   });
   todo.items = [root, a, b, c, d, e];
-  todo.propertyDefs = [
-    { name: 'Due', type: 'date' },
-    { name: 'Effort', type: 'number', display: 'bar', min: 0, max: 10 },
-    { name: 'Area', type: 'select', options: ['Product', 'Ops', 'Growth'] },
-  ];
-  root.properties = { Due: '2026-08-15', Effort: '9', Area: 'Product' };
-  a.properties = { Due: '2026-07-30', Effort: '6', Area: 'Product' };
-  b.properties = { Due: '2026-08-10', Effort: '3', Area: 'Growth' };
-  c.properties = { Effort: '1', Area: 'Growth' };
-  d.properties = { Due: '2026-08-01', Effort: '2', Area: 'Ops' };
-  e.properties = { Effort: '7', Area: 'Product' };
-  // Grouping parents earn their keep in the tree, not on the board.
-  root.showInMatrix = true;
+  // Documents start with no properties at all — you add the ones you want.
+  todo.propertyDefs = [];
 
   const note = makeNoteDoc(
     'Welcome',
@@ -712,7 +846,7 @@ export function isLoaded(): boolean {
  */
 interface SessionDoc {
   id: string;
-  type: 'todo' | 'note';
+  type: DocKind;
   path: string | null;
   title: string;
   view: string;
@@ -720,9 +854,14 @@ interface SessionDoc {
   /* Window state, kept out of the document body. */
   columnWidths?: Record<string, number>;
   columnDisplay?: Record<string, NumberDisplay>;
+  columnOrder?: string[];
+  colorBy?: string;
   sort?: SortSpec | null;
   axes?: MatrixAxes;
   zoom?: number;
+  panX?: number;
+  panY?: number;
+  snap?: boolean;
   /** Current (possibly unsaved) content. */
   buffer: string;
   /** Content as last synced with disk. */
@@ -754,13 +893,18 @@ function toSession(ws: Workspace): Session {
       type: d.type,
       path: d.path,
       title: d.title,
-      view: d.view,
+      view: d.type === 'diagram' ? 'canvas' : d.view,
       mdMode: d.type === 'note' ? d.mdMode : undefined,
       columnWidths: d.type === 'todo' ? d.columnWidths : undefined,
       columnDisplay: d.type === 'todo' ? d.columnDisplay : undefined,
+      columnOrder: d.type === 'todo' ? d.columnOrder : undefined,
+      colorBy: d.type === 'todo' ? d.colorBy : undefined,
       sort: d.type === 'todo' ? (d.sort ?? null) : undefined,
       axes: d.type === 'todo' ? d.axes : undefined,
-      zoom: d.type === 'todo' ? d.zoom : undefined,
+      zoom: d.type === 'note' ? undefined : d.zoom,
+      panX: d.type === 'diagram' ? d.panX : undefined,
+      panY: d.type === 'diagram' ? d.panY : undefined,
+      snap: d.type === 'diagram' ? d.snap : undefined,
       buffer: serializeDoc(d),
       saved: d.saved,
       mtime: d.mtime,
@@ -801,6 +945,17 @@ function docFromSession(sd: SessionDoc): Doc {
   const body = parseDocBody(sd.type, sd.title, sd.buffer);
   const file: DocFile = { path: sd.path, saved: sd.saved, mtime: sd.mtime };
   const base = { id: sd.id, createdAt: now, updatedAt: now, ...file };
+  if (body.type === 'diagram') {
+    return {
+      ...base,
+      ...body,
+      title: sd.title,
+      zoom: sd.zoom ?? 1,
+      panX: sd.panX ?? 0,
+      panY: sd.panY ?? 0,
+      snap: sd.snap !== false,
+    } as DiagramDoc;
+  }
   if (body.type === 'note') {
     return {
       ...base,
@@ -814,9 +969,11 @@ function docFromSession(sd: SessionDoc): Doc {
     ...base,
     ...body,
     title: sd.title,
-    view: sd.view === 'tree' ? 'tree' : 'matrix',
+    view: sd.view === 'tree' ? 'tree' : sd.view === 'trash' ? 'trash' : 'matrix',
     columnWidths: sd.columnWidths ?? {},
     columnDisplay: sd.columnDisplay ?? {},
+    columnOrder: sd.columnOrder,
+    colorBy: sd.colorBy ?? 'own',
     sort: sd.sort ?? null,
     axes: sd.axes ?? { ...DEFAULT_AXES },
     zoom: sd.zoom ?? 1,
@@ -825,7 +982,7 @@ function docFromSession(sd: SessionDoc): Doc {
 
 /** Builds a fresh open buffer from a file already on disk. */
 export function docFromFile(rel: string, content: string, mtime: number): Doc {
-  const type: 'todo' | 'note' = rel.toLowerCase().endsWith(TODO_EXT) ? 'todo' : 'note';
+  const type = kindForPath(rel);
   const now = Date.now();
   const body = parseDocBody(type, baseName(rel), content);
   const doc = {
@@ -953,13 +1110,20 @@ interface DocUi {
   mdMode?: NoteDoc['mdMode'];
   columnWidths?: Record<string, number>;
   columnDisplay?: Record<string, NumberDisplay>;
+  columnOrder?: string[];
+  colorBy?: string;
   sort?: SortSpec | null;
   axes?: MatrixAxes;
   zoom?: number;
+  panX?: number;
+  panY?: number;
+  snap?: boolean;
 }
 
 function pickUi(doc: Doc): DocUi {
   if (doc.type === 'note') return { view: doc.view, mdMode: doc.mdMode };
+  if (doc.type === 'diagram')
+    return { zoom: doc.zoom, panX: doc.panX, panY: doc.panY, snap: doc.snap };
   return {
     view: doc.view,
     columnWidths: doc.columnWidths,
@@ -978,9 +1142,20 @@ function applyUi(doc: Doc, ui: DocUi): Doc {
       mdMode: ui.mdMode ?? doc.mdMode,
     };
   }
+  if (doc.type === 'diagram') {
+    return {
+      ...doc,
+      zoom: ui.zoom ?? doc.zoom,
+      panX: ui.panX ?? doc.panX,
+      panY: ui.panY ?? doc.panY,
+      snap: ui.snap ?? doc.snap,
+    };
+  }
   return {
     ...doc,
-    view: ui.view === 'tree' ? 'tree' : 'matrix',
+    view: ui.view === 'tree' ? 'tree' : ui.view === 'trash' ? 'trash' : 'matrix',
+    columnOrder: ui.columnOrder ?? doc.columnOrder,
+    colorBy: ui.colorBy ?? doc.colorBy,
     columnWidths: ui.columnWidths ?? doc.columnWidths,
     columnDisplay: ui.columnDisplay ?? doc.columnDisplay,
     sort: ui.sort ?? doc.sort,
@@ -1396,8 +1571,9 @@ export function setSplitSizes(axis: 'col' | 'row', sizes: number[]) {
 /* --------------------------------------------------------- doc lifecycle */
 
 /** Next free "Untitled N" name, counting both open buffers and vault files. */
-function untitledName(type: 'todo' | 'note'): string {
-  const stem = type === 'todo' ? 'Untitled todo' : 'Untitled';
+function untitledName(type: DocKind): string {
+  const stem =
+    type === 'todo' ? 'Untitled todo' : type === 'diagram' ? 'Untitled diagram' : 'Untitled';
   const taken = new Set([
     ...state.docs.map((d) => d.title),
     ...state.files.map((f) => baseName(f.rel)),
@@ -1553,10 +1729,61 @@ export function setMetrics(
   updateItem(docId, itemId, patch, coalesce);
 }
 
+/** Moves an item and its descendants to the document's trash. */
 export function deleteItem(docId: string, itemId: string) {
+  const when = Date.now();
+  updateTodo(docId, (d) => {
+    const doomed = new Set([itemId, ...descendantIds(d.items, itemId)]);
+    return {
+      ...d,
+      items: d.items.map((i) => (doomed.has(i.id) ? { ...i, deletedAt: i.deletedAt ?? when } : i)),
+    };
+  });
+}
+
+/** Brings an item and its descendants back; re-roots it if its parent is gone. */
+export function restoreItem(docId: string, itemId: string) {
+  updateTodo(docId, (d) => {
+    const back = new Set([itemId, ...descendantIds(d.items, itemId)]);
+    const alive = new Set(d.items.filter((i) => i.deletedAt == null).map((i) => i.id));
+    return {
+      ...d,
+      items: normalize(
+        d.items.map((i) => {
+          if (!back.has(i.id)) return i;
+          const parentOk = !i.parentId || alive.has(i.parentId) || back.has(i.parentId);
+          return { ...i, deletedAt: null, parentId: parentOk ? i.parentId : null };
+        })
+      ),
+    };
+  });
+}
+
+/** Removes an item and its descendants for good. */
+export function purgeItem(docId: string, itemId: string) {
   updateTodo(docId, (d) => {
     const doomed = new Set([itemId, ...descendantIds(d.items, itemId)]);
     return { ...d, items: d.items.filter((i) => !doomed.has(i.id)) };
+  });
+}
+
+export function emptyTrash(docId: string) {
+  updateTodo(docId, (d) => ({ ...d, items: d.items.filter((i) => i.deletedAt == null) }));
+}
+
+export function restoreAll(docId: string) {
+  updateTodo(docId, (d) => {
+    const alive = new Set(d.items.filter((i) => i.deletedAt == null).map((i) => i.id));
+    return {
+      ...d,
+      items: normalize(
+        d.items.map((i) =>
+          i.deletedAt == null
+            ? i
+            : { ...i, deletedAt: null, parentId: i.parentId && !alive.has(i.parentId) ? null : i.parentId }
+        )
+      ),
+    };
   });
 }
 
@@ -1796,6 +2023,77 @@ export function movePropertyColumn(docId: string, key: string, dir: -1 | 1) {
   });
 }
 
+/* --------------------------------------------------------- column order */
+
+/** Built-in columns, in their default order. `actions` is always pinned last. */
+export const BUILTIN_COLUMNS = [
+  'matrix',
+  'title',
+  'quadrant',
+  'status',
+  'assignee',
+  'urgency',
+  'importance',
+  'weight',
+  'color',
+];
+
+/**
+ * Every column in display order — built-ins and properties alike. A stored
+ * order wins; anything it does not mention keeps its natural position, so
+ * adding a property later never scrambles the layout.
+ */
+export function orderedColumnKeys(doc: TodoDoc): string[] {
+  const natural = [...BUILTIN_COLUMNS, ...propertyDefsOf(doc).map((d) => `prop:${d.name}`)];
+  const stored = doc.columnOrder ?? [];
+  if (!stored.length) return natural;
+  const known = new Set(natural);
+  const out = stored.filter((k) => known.has(k));
+  const seen = new Set(out);
+  natural.forEach((k, i) => {
+    if (seen.has(k)) return;
+    // Re-insert after whichever of its natural predecessors is already placed.
+    let at = out.length;
+    for (let j = i - 1; j >= 0; j--) {
+      const prev = out.indexOf(natural[j]);
+      if (prev >= 0) {
+        at = prev + 1;
+        break;
+      }
+    }
+    out.splice(at, 0, k);
+    seen.add(k);
+  });
+  return out;
+}
+
+/**
+ * Moves any column to a new slot. Property columns additionally rewrite the
+ * document's schema order, so what you see matches what the file records.
+ */
+export function moveColumn(docId: string, key: string, toIndex: number) {
+  updateTodo(docId, (d) => {
+    const order = orderedColumnKeys(d);
+    const from = order.indexOf(key);
+    if (from < 0) return d;
+    const next = order.slice();
+    const [moved] = next.splice(from, 1);
+    next.splice(clamp(from < toIndex ? toIndex - 1 : toIndex, 0, next.length), 0, moved);
+    if (next.every((k, i) => k === order[i])) return d;
+
+    const propOrder = next.filter((k) => k.startsWith('prop:')).map((k) => k.slice(5));
+    const defs = propertyDefsOf(d);
+    const reDefs = propOrder
+      .map((n) => defs.find((def) => def.name === n))
+      .filter((def): def is PropertyDef => Boolean(def));
+    return { ...d, columnOrder: next, propertyDefs: reDefs.length === defs.length ? reDefs : defs };
+  });
+}
+
+export function resetColumnOrder(docId: string) {
+  updateTodo(docId, (d) => ({ ...d, columnOrder: undefined }), { noHistory: true });
+}
+
 /** Drops a property column at an arbitrary position (header drag-and-drop). */
 export function reorderPropertyColumn(docId: string, key: string, toIndex: number) {
   updateTodo(docId, (d) => {
@@ -1810,6 +2108,138 @@ export function reorderPropertyColumn(docId: string, key: string, toIndex: numbe
     if (next.every((def, i) => def === defs[i])) return d;
     return { ...d, propertyDefs: next };
   });
+}
+
+/* -------------------------------------------------------------- diagrams */
+
+function updateDiagram(docId: string, fn: (d: DiagramDoc) => DiagramDoc, opts?: CommitOpts) {
+  replaceDoc(docId, (d) => (d.type === 'diagram' ? fn(d) : d), opts);
+}
+
+export function addDiagramNode(docId: string, at: Partial<DiagramNode>): string {
+  const node: DiagramNode = {
+    id: uid('n'),
+    x: at.x ?? 0,
+    y: at.y ?? 0,
+    w: at.w ?? NODE_DEFAULT_W,
+    h: at.h ?? NODE_DEFAULT_H,
+    text: at.text ?? '',
+    shape: at.shape ?? 'round',
+    color: at.color ?? COLOR_PRESETS[0],
+  };
+  updateDiagram(docId, (d) => ({ ...d, nodes: [...d.nodes, node] }));
+  return node.id;
+}
+
+export function updateDiagramNode(
+  docId: string,
+  nodeId: string,
+  patch: Partial<DiagramNode>,
+  coalesce?: string
+) {
+  updateDiagram(
+    docId,
+    (d) => ({ ...d, nodes: d.nodes.map((n) => (n.id === nodeId ? { ...n, ...patch } : n)) }),
+    coalesce ? { coalesce } : undefined
+  );
+}
+
+/** Batch move, so dragging a multi-selection is one undo step. */
+export function moveDiagramNodes(docId: string, moves: Array<{ id: string; x: number; y: number }>) {
+  const at = new Map(moves.map((m) => [m.id, m]));
+  updateDiagram(
+    docId,
+    (d) => ({
+      ...d,
+      nodes: d.nodes.map((n) => {
+        const m = at.get(n.id);
+        return m && (m.x !== n.x || m.y !== n.y) ? { ...n, x: m.x, y: m.y } : n;
+      }),
+    }),
+    { coalesce: `dnode:${moves.map((m) => m.id).join(',')}` }
+  );
+}
+
+export function duplicateDiagramNode(docId: string, nodeId: string) {
+  updateDiagram(docId, (d) => {
+    const n = d.nodes.find((x) => x.id === nodeId);
+    if (!n) return d;
+    return { ...d, nodes: [...d.nodes, { ...n, id: uid('n'), x: n.x + 20, y: n.y + 20 }] };
+  });
+}
+
+/** Last in the array paints last, so this is "bring to front". */
+export function raiseDiagramNode(docId: string, nodeId: string) {
+  updateDiagram(docId, (d) => {
+    const n = d.nodes.find((x) => x.id === nodeId);
+    if (!n) return d;
+    return { ...d, nodes: [...d.nodes.filter((x) => x.id !== nodeId), n] };
+  });
+}
+
+export function removeDiagramNode(docId: string, nodeId: string) {
+  updateDiagram(docId, (d) => ({
+    ...d,
+    nodes: d.nodes.filter((n) => n.id !== nodeId),
+    edges: d.edges.filter((e) => e.from !== nodeId && e.to !== nodeId),
+  }));
+}
+
+export function addDiagramEdge(docId: string, from: string, to: string, fromPort: Port = 'auto') {
+  updateDiagram(docId, (d) => {
+    if (d.edges.some((e) => e.from === from && e.to === to)) return d;
+    const edge: DiagramEdge = {
+      id: uid('e'),
+      from,
+      to,
+      label: '',
+      style: 'solid',
+      arrow: 'end',
+      fromPort,
+      toPort: 'auto',
+    };
+    return { ...d, edges: [...d.edges, edge] };
+  });
+}
+
+export function updateDiagramEdge(
+  docId: string,
+  edgeId: string,
+  patch: Partial<DiagramEdge>,
+  coalesce?: string
+) {
+  updateDiagram(
+    docId,
+    (d) => ({ ...d, edges: d.edges.map((e) => (e.id === edgeId ? { ...e, ...patch } : e)) }),
+    coalesce ? { coalesce } : undefined
+  );
+}
+
+export function removeDiagramEdge(docId: string, edgeId: string) {
+  updateDiagram(docId, (d) => ({ ...d, edges: d.edges.filter((e) => e.id !== edgeId) }));
+}
+
+export function setDiagramView(docId: string, zoom: number, panX: number, panY: number) {
+  updateDiagram(
+    docId,
+    (d) => ({ ...d, zoom: clamp(zoom, 0.25, 3), panX, panY }),
+    { noHistory: true }
+  );
+}
+
+export function setDiagramPan(docId: string, panX: number, panY: number) {
+  updateDiagram(docId, (d) => ({ ...d, panX, panY }), { noHistory: true });
+}
+
+export function setDiagramSnap(docId: string, snap: boolean) {
+  updateDiagram(docId, (d) => ({ ...d, snap }), { noHistory: true });
+}
+
+export function createDiagramDoc(title?: string, paneId?: string): string {
+  const doc = makeDiagramDoc(title || untitledName('diagram'));
+  commit({ ...state, docs: [...state.docs, doc] });
+  openDoc(doc.id, paneId ?? state.layout.activePaneId);
+  return doc.id;
 }
 
 /* --------------------------------------------------------------- lookups */
@@ -1886,6 +2316,22 @@ export async function saveDoc(docId: string): Promise<SaveResult> {
   if (!doc) return { ok: false, error: 'No such document' };
   if (!window.api) return { ok: false, error: 'Saving needs the desktop app' };
   if (!doc.path) return saveDocAsPrompt(docId);
+
+  // A retitled document renames its file, otherwise writing would pull the old
+  // filename back over the new title and the rename would silently vanish.
+  const wanted = safeFileName(doc.title);
+  if (wanted && wanted !== baseName(doc.path)) {
+    const folder = dirName(doc.path);
+    const target = `${folder ? folder + '/' : ''}${wanted}${extForType(doc.type)}`;
+    const moved = await window.api.file.rename(doc.path, target);
+    if (moved.ok) {
+      replaceDoc(doc.id, (d) => ({ ...d, path: target }), { noHistory: true });
+      const fresh = state.docs.find((d) => d.id === docId);
+      return writeDoc(fresh ?? doc, target);
+    }
+    // Name clash: keep the file where it is and tell the user.
+    await window.api.dialog.message('Could not rename the file', moved.error ?? target);
+  }
   return writeDoc(doc, doc.path);
 }
 

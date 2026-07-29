@@ -109,6 +109,7 @@ function buildMenu() {
           accelerator: 'CmdOrCtrl+T',
           click: () => send('menu', 'new-todo'),
         },
+        { label: 'New Diagram', click: () => send('menu', 'new-diagram') },
         { type: 'separator' },
         { label: 'Save', accelerator: 'CmdOrCtrl+S', click: () => send('menu', 'save') },
         { label: 'Save As…', accelerator: 'CmdOrCtrl+Shift+S', click: () => send('menu', 'save-as') },

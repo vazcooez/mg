@@ -3,6 +3,31 @@ import * as S from '../store';
 import TabStrip, { getDraggedTab, setDraggedTab } from './TabStrip';
 import TodoDocView from './TodoDocView';
 import NoteDocView from './NoteDocView';
+import DiagramView from './DiagramView';
+import { DiagramDoc } from '../types';
+
+/** Diagrams get the same title header as the other document types. */
+function DiagramDocView({ doc }: { doc: DiagramDoc }) {
+  return (
+    <div className="doc-view">
+      <header className="doc-header">
+        <input
+          className="doc-title"
+          value={doc.title}
+          onChange={(e) => S.renameDoc(doc.id, e.target.value)}
+          spellCheck={false}
+          aria-label="Document title"
+        />
+        <span className="doc-kind">Diagram</span>
+      </header>
+      <div className="doc-body">
+        <div className="doc-main">
+          <DiagramView doc={doc} />
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export default function EditorPane({
   ws,
@@ -37,6 +62,8 @@ export default function EditorPane({
           <EmptyPane paneId={pane.id} />
         ) : doc.type === 'todo' ? (
           <TodoDocView doc={doc} paneId={pane.id} theme={ws.theme} />
+        ) : doc.type === 'diagram' ? (
+          <DiagramDocView doc={doc} />
         ) : (
           <NoteDocView ws={ws} doc={doc} paneId={pane.id} />
         )}

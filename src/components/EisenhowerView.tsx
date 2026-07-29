@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  cardBox,
   clamp,
   fmt,
   round1,
@@ -100,11 +101,11 @@ export default function EisenhowerView({ doc, selectedId, onSelect }: Props) {
   const geo = geometryOf(axes);
   const zoom = S.zoomOf(doc);
 
-  const visible = doc.items.filter(
-    (i) => i.showInMatrix && !(hideDone && i.status === 'done')
-  );
+  const live = S.liveItems(doc);
+  const visible = live.filter((i) => i.showInMatrix && !(hideDone && i.status === 'done'));
   const visibleIds = new Set(visible.map((i) => i.id));
-  const hiddenCount = doc.items.length - visible.length;
+  const hiddenCount = live.length - visible.length;
+  const colorBy = doc.colorBy ?? 'own';
 
   /* ------------------------------------------------------------ gestures */
 
@@ -253,6 +254,9 @@ export default function EisenhowerView({ doc, selectedId, onSelect }: Props) {
       }
       if (e.key === 'Delete') {
         e.preventDefault();
+        const kids = S.descendantIds(doc.items, item.id).length;
+        const what = kids ? `"${item.title}" and ${kids} descendant${kids === 1 ? '' : 's'}` : `"${item.title}"`;
+        if (!confirm(`Move ${what} to this document's trash?`)) return;
         S.deleteItem(doc.id, item.id);
         onSelect(null);
       }
@@ -305,6 +309,17 @@ export default function EisenhowerView({ doc, selectedId, onSelect }: Props) {
         <label className="tb-check">
           <input type="checkbox" checked={showLinks} onChange={(e) => setShowLinks(e.target.checked)} />
           Parent links
+        </label>
+        <span className="tb-sep" />
+        <label className="tb-check color-by">
+          Colour by
+          <select value={colorBy} onChange={(e) => S.setColorBy(doc.id, e.target.value)}>
+            {S.colorByOptions(doc).map((o) => (
+              <option key={o.key} value={o.key}>
+                {o.label}
+              </option>
+            ))}
+          </select>
         </label>
         <span className="tb-sep" />
         <div className="axis-controls" role="group" aria-label="Matrix orientation">
@@ -393,7 +408,7 @@ export default function EisenhowerView({ doc, selectedId, onSelect }: Props) {
               <svg className="link-layer">
                 {visible.map((item) => {
                   if (!item.parentId || !visibleIds.has(item.parentId)) return null;
-                  const parent = doc.items.find((p) => p.id === item.parentId)!;
+                  const parent = live.find((p) => p.id === item.parentId)!;
                   const a = place(parent, geo);
                   const b = place(item, geo);
                   return (
@@ -462,12 +477,15 @@ function Card({
   onPointerDown: (e: React.PointerEvent) => void;
   onResizeDown: (e: React.PointerEvent) => void;
 }) {
-  const size = weightToSize(item.weight) * zoom;
+  const box = cardBox(item.weight, zoom);
   const { left, top } = place(item, geo);
-  const color = S.resolveColor(doc.items, item);
+  const color = S.cardColor(doc, item);
   const inherited = !item.color;
-  const depth = S.depthOf(doc.items, item.id);
   const defs = S.propertyDefsOf(doc);
+  // Ancestors give the card its place in the tree at a glance.
+  const trail = S.ancestorsOf(doc.items, item.id)
+    .reverse()
+    .map((a) => a.title);
 
   return (
     <div
@@ -478,8 +496,8 @@ function Card({
         left: `${left}%`,
         top: `${top}%`,
         // While editing the card grows into a form, so it drops its fixed box.
-        width: editing ? undefined : size,
-        height: editing ? undefined : size,
+        width: editing ? undefined : box.w,
+        height: editing ? undefined : box.h,
         // Larger cards sit underneath so small ones stay clickable.
         zIndex: editing ? 1000 : selected ? 999 : 200 - Math.round(item.weight * 10),
         ['--card-color' as string]: color,
@@ -498,7 +516,11 @@ function Card({
     >
       <div className="ecard-top">
         <span className="ecard-status" style={{ background: STATUS_COLOR[item.status] }} />
-        {depth > 0 && <span className="ecard-depth">{'·'.repeat(Math.min(depth, 4))}</span>}
+        {trail.length > 0 && (
+          <span className="ecard-path" title={[...trail, item.title].join(' › ')}>
+            {trail.join(' › ')}
+          </span>
+        )}
         {item.assignee && <span className="ecard-assignee">{item.assignee}</span>}
       </div>
 

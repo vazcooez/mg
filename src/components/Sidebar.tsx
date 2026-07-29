@@ -112,6 +112,13 @@ export default function Sidebar({ ws, onFlash }: { ws: Workspace; onFlash: (m: s
         },
       },
       {
+        label: 'New diagram here',
+        run: async () => {
+          const id = S.createDiagramDoc();
+          await S.saveDocAs(id, `${rel ? rel + '/' : ''}Untitled diagram.mgdiagram`);
+        },
+      },
+      {
         label: 'New folder…',
         run: () =>
           setPrompt({
@@ -227,6 +234,14 @@ export default function Sidebar({ ws, onFlash }: { ws: Workspace; onFlash: (m: s
           <button
             type="button"
             className="icon-btn"
+            title="New diagram"
+            onClick={() => S.createDiagramDoc()}
+          >
+            ◇
+          </button>
+          <button
+            type="button"
+            className="icon-btn"
             title="Vault actions"
             onClick={(e) =>
               setMenu({
@@ -270,6 +285,11 @@ export default function Sidebar({ ws, onFlash }: { ws: Workspace; onFlash: (m: s
 
       <div
         className="sidebar-tree"
+        title="Double-click empty space for a new note"
+        onDoubleClick={(e) => {
+          // Empty space only: double-clicking a file or folder means something else.
+          if (e.target === e.currentTarget) S.createNoteDoc();
+        }}
         onContextMenu={(e) => {
           if (e.target === e.currentTarget) {
             e.preventDefault();
