@@ -164,6 +164,9 @@ export interface TodoDoc extends DocFile {
   items: TodoItem[];
   /** Custom property schema, in column order. */
   propertyDefs: PropertyDef[];
+  /** Assignee behaves as free text, or as a list of people to pick from. */
+  assigneeType?: 'text' | 'select';
+  assigneeOptions?: string[];
   /*
    * Everything below is *window* state: it rides along in the session and is
    * deliberately excluded from `serializeDoc`, so changing a view, sorting a
@@ -253,6 +256,17 @@ export interface DiagramNode {
 }
 
 export type EdgeStyle = 'solid' | 'dashed';
+
+/** How a connector gets from one node to the other. */
+export type EdgeRoute = 'orthogonal' | 'straight' | 'curved';
+
+export const EDGE_ROUTES: EdgeRoute[] = ['orthogonal', 'straight', 'curved'];
+
+export const EDGE_ROUTE_LABEL: Record<EdgeRoute, string> = {
+  orthogonal: 'Elbow',
+  straight: 'Straight',
+  curved: 'Curved',
+};
 export type EdgeArrow = 'end' | 'both' | 'none';
 
 /** Which side of a node an edge attaches to; `auto` picks the nearest. */
@@ -264,6 +278,7 @@ export interface DiagramEdge {
   to: string;
   label: string;
   style: EdgeStyle;
+  route: EdgeRoute;
   arrow: EdgeArrow;
   fromPort: Port;
   toPort: Port;

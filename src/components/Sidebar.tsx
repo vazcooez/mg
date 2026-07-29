@@ -3,6 +3,7 @@ import { baseName, dirName, VaultFile, Workspace } from '../types';
 import * as S from '../store';
 import ContextMenu, { MenuState } from './ContextMenu';
 import Prompt, { PromptState } from './Prompt';
+import DocIcon from './DocIcon';
 
 interface TreeNode {
   rel: string;
@@ -176,7 +177,7 @@ export default function Sidebar({ ws, onFlash }: { ws: Workspace; onFlash: (m: s
                     setMenu(fileMenu(file, e.clientX, e.clientY));
                   }}
                 >
-                  <span className={`tab-dot ${file.type}`} />
+                  <DocIcon kind={file.type} />
                   {renaming === file.rel ? (
                     <input
                       className="rename-input"
@@ -307,7 +308,7 @@ export default function Sidebar({ ws, onFlash }: { ws: Workspace; onFlash: (m: s
                 style={{ paddingLeft: 14 }}
                 onClick={() => S.openDoc(doc.id)}
               >
-                <span className={`tab-dot ${doc.type}`} />
+                <DocIcon kind={doc.type} />
                 <span className="side-doc-name">{doc.title}</span>
                 <span className="side-dirty" title="Never saved" />
               </div>

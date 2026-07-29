@@ -148,6 +148,12 @@ function buildMenu() {
         },
         { type: 'separator' },
         { label: 'Next Tab', accelerator: 'CmdOrCtrl+PageDown', click: () => send('menu', 'next-tab') },
+        { label: 'Next Tab (Ctrl+Tab)', accelerator: 'Control+Tab', click: () => send('menu', 'next-tab') },
+        {
+          label: 'Previous Tab (Ctrl+Shift+Tab)',
+          accelerator: 'Control+Shift+Tab',
+          click: () => send('menu', 'prev-tab'),
+        },
         {
           label: 'Previous Tab',
           accelerator: 'CmdOrCtrl+PageUp',

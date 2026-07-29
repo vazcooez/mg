@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import DocIcon from './DocIcon';
 
 export interface PaletteEntry {
   id: string;
@@ -130,7 +131,7 @@ export default function Palette({
               onMouseEnter={() => setSel(i)}
               onClick={() => commit(i)}
             >
-              {r.entry.kind && <span className={`tab-dot ${r.entry.kind}`} />}
+              {r.entry.kind && <DocIcon kind={r.entry.kind} />}
               <span className="palette-label">
                 <Highlight text={r.entry.label} hits={r.hits} />
               </span>

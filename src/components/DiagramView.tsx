@@ -2,6 +2,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   clamp,
   COLOR_PRESETS,
+  EDGE_ROUTE_LABEL,
+  EDGE_ROUTES,
+  EdgeRoute,
   DiagramDoc,
   DiagramNode,
   EdgeArrow,
@@ -24,6 +27,7 @@ type Drag =
   | { kind: 'resize'; id: string; x: number; y: number; w: number; h: number; sx: number; sy: number }
   | { kind: 'pan'; sx: number; sy: number; px: number; py: number }
   | { kind: 'connect'; from: string; fromPort: Port; x: number; y: number }
+  | { kind: 'reattach'; edge: string; end: 'from' | 'to' }
   | { kind: 'marquee'; sx: number; sy: number; x: number; y: number };
 
 const PORTS: Exclude<Port, 'auto'>[] = ['top', 'right', 'bottom', 'left'];
@@ -44,8 +48,19 @@ function portPoint(n: DiagramNode, port: Port, towards?: { x: number; y: number 
   return { x: n.x + n.w, y: cy };
 }
 
-/** Orthogonal elbow path, the way draw.io routes by default. */
-function edgePath(a: { x: number; y: number }, b: { x: number; y: number }, horizontalFirst: boolean) {
+type Pt = { x: number; y: number };
+
+/** Elbow, straight or curved — draw.io offers the same three. */
+function edgePath(a: Pt, b: Pt, route: EdgeRoute, horizontalFirst: boolean) {
+  if (route === 'straight') return `M ${a.x} ${a.y} L ${b.x} ${b.y}`;
+  if (route === 'curved') {
+    // Control points pushed along the dominant axis give a smooth S-bend.
+    const dx = Math.abs(b.x - a.x) * 0.5;
+    const dy = Math.abs(b.y - a.y) * 0.5;
+    return horizontalFirst
+      ? `M ${a.x} ${a.y} C ${a.x + dx} ${a.y}, ${b.x - dx} ${b.y}, ${b.x} ${b.y}`
+      : `M ${a.x} ${a.y} C ${a.x} ${a.y + dy}, ${b.x} ${b.y - dy}, ${b.x} ${b.y}`;
+  }
   const mx = horizontalFirst ? (a.x + b.x) / 2 : a.x;
   const my = horizontalFirst ? a.y : (a.y + b.y) / 2;
   return horizontalFirst
@@ -99,7 +114,7 @@ export default function DiagramView({ doc }: { doc: DiagramDoc }) {
         });
       } else if (d.kind === 'pan') {
         S.setDiagramPan(doc.id, d.px + (e.clientX - d.sx), d.py + (e.clientY - d.sy));
-      } else if (d.kind === 'connect') {
+      } else if (d.kind === 'connect' || d.kind === 'reattach') {
         setGhost(p);
       } else if (d.kind === 'marquee') {
         setMarquee({
@@ -117,7 +132,24 @@ export default function DiagramView({ doc }: { doc: DiagramDoc }) {
       document.body.classList.remove('dragging');
       if (!d) return;
 
-      if (d.kind === 'connect') {
+      if (d.kind === 'reattach') {
+        const p = toDiagram(e.clientX, e.clientY);
+        const target = doc.nodes.find(
+          (n) => p.x >= n.x && p.x <= n.x + n.w && p.y >= n.y && p.y <= n.y + n.h
+        );
+        const edge = doc.edges.find((x) => x.id === d.edge);
+        if (target && edge) {
+          const other = d.end === 'from' ? edge.to : edge.from;
+          // Refuse to collapse a connector onto a single node.
+          if (target.id !== other) {
+            S.updateDiagramEdge(doc.id, d.edge, {
+              [d.end]: target.id,
+              [d.end === 'from' ? 'fromPort' : 'toPort']: 'auto',
+            });
+          }
+        }
+        setGhost(null);
+      } else if (d.kind === 'connect') {
         const p = toDiagram(e.clientX, e.clientY);
         const target = doc.nodes.find(
           (n) => p.x >= n.x && p.x <= n.x + n.w && p.y >= n.y && p.y <= n.y + n.h
@@ -271,6 +303,17 @@ export default function DiagramView({ doc }: { doc: DiagramDoc }) {
                 {s}
               </button>
             ))}
+            {EDGE_ROUTES.map((r) => (
+              <button
+                key={r}
+                type="button"
+                className={selectedEdge.route === r ? 'on' : ''}
+                title={`${EDGE_ROUTE_LABEL[r]} connector`}
+                onClick={() => S.updateDiagramEdge(doc.id, selectedEdge.id, { route: r })}
+              >
+                {EDGE_ROUTE_LABEL[r]}
+              </button>
+            ))}
             {(['end', 'both', 'none'] as EdgeArrow[]).map((a) => (
               <button
                 key={a}
@@ -368,7 +411,7 @@ export default function DiagramView({ doc }: { doc: DiagramDoc }) {
               const pb = portPoint(b, edge.toPort, { x: a.x + a.w / 2, y: a.y + a.h / 2 });
               const pa = portPoint(a, edge.fromPort, pb);
               const horizontal = Math.abs(pb.x - pa.x) > Math.abs(pb.y - pa.y);
-              const d = edgePath(pa, pb, horizontal);
+              const d = edgePath(pa, pb, edge.route ?? 'orthogonal', horizontal);
               const on = sel?.kind === 'edge' && sel.id === edge.id;
               return (
                 <g key={edge.id} className={`d-edge${on ? ' sel' : ''}`}>
@@ -385,17 +428,48 @@ export default function DiagramView({ doc }: { doc: DiagramDoc }) {
                       {edge.label}
                     </text>
                   )}
+                  {/* A selected connector exposes both ends, so it can be
+                      dragged onto a different shape. */}
+                  {on &&
+                    (['from', 'to'] as const).map((end) => {
+                      const at = end === 'from' ? pa : pb;
+                      return (
+                        <circle
+                          key={end}
+                          className="d-endpoint"
+                          cx={at.x}
+                          cy={at.y}
+                          r={6}
+                          onPointerDown={(ev) => {
+                            ev.stopPropagation();
+                            drag.current = { kind: 'reattach', edge: edge.id, end };
+                            setGhost(toDiagram(ev.clientX, ev.clientY));
+                            document.body.classList.add('dragging');
+                          }}
+                        />
+                      );
+                    })}
                 </g>
               );
             })}
-            {ghost && drag.current?.kind === 'connect' && (
+            {ghost && (drag.current?.kind === 'connect' || drag.current?.kind === 'reattach') && (
               <path
                 className="d-edge-ghost"
                 d={(() => {
-                  const from = byId.get(drag.current.from);
-                  if (!from) return '';
-                  const pa = portPoint(from, drag.current.fromPort, ghost);
-                  return edgePath(pa, ghost, Math.abs(ghost.x - pa.x) > Math.abs(ghost.y - pa.y));
+                  const g = drag.current!;
+                  let anchor: DiagramNode | undefined;
+                  let port: Port = 'auto';
+                  if (g.kind === 'connect') {
+                    anchor = byId.get(g.from);
+                    port = g.fromPort;
+                  } else {
+                    const edge = doc.edges.find((x) => x.id === g.edge);
+                    // Pin the end that is staying put.
+                    anchor = byId.get(g.end === 'from' ? edge?.to ?? '' : edge?.from ?? '');
+                  }
+                  if (!anchor) return '';
+                  const pa = portPoint(anchor, port, ghost);
+                  return edgePath(pa, ghost, 'straight', true);
                 })()}
               />
             )}

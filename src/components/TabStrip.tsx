@@ -2,6 +2,7 @@ import { useRef, useState } from 'react';
 import { Pane, Workspace } from '../types';
 import * as S from '../store';
 import ContextMenu, { MenuState } from './ContextMenu';
+import DocIcon from './DocIcon';
 
 /** Shared across strips so a tab can be dragged from one pane into another. */
 const dragRef: { value: { paneId: string; docId: string } | null } = { value: null };
@@ -156,7 +157,7 @@ export default function TabStrip({
                 setMenu(tabMenu(doc.id, e.clientX, e.clientY));
               }}
             >
-              <span className={`tab-dot ${doc.type}`} />
+              <DocIcon kind={doc.type} />
               <span className="tab-label">{doc.title || 'Untitled'}</span>
               {/* Sublime shows a dot for unsaved buffers; it becomes × on hover. */}
               <button

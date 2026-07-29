@@ -62,10 +62,15 @@ export default function TreeTableView({ doc, theme, selectedId, onSelect }: Prop
   const defs = useMemo(() => S.propertyDefsOf(doc), [doc]);
   const sort = doc.sort ?? null;
 
-  const rows = useMemo(
-    () => S.flattenTree(S.liveItems(doc), true, sort ? S.itemComparator(doc, sort) : undefined),
-    [doc, sort]
-  );
+  // A sort is a flat ranking of every item; without one we show the tree.
+  const rows = useMemo(() => {
+    const live = S.liveItems(doc);
+    if (!sort) return S.flattenTree(live, true);
+    return live
+      .slice()
+      .sort(S.itemComparator(doc, sort))
+      .map((item) => ({ item, depth: 0, hasChildren: false }));
+  }, [doc, sort]);
 
   const columns = useMemo<Column[]>(() => {
     const spec: Record<string, Omit<Column, 'key'>> = {
@@ -174,6 +179,31 @@ export default function TreeTableView({ doc, theme, selectedId, onSelect }: Prop
       },
       { label: 'Reset column order', run: () => S.resetColumnOrder(doc.id) },
     ];
+
+    if (col.key === 'assignee') {
+      entries.push({ separator: true });
+      for (const t of ['text', 'select'] as const) {
+        const on = (doc.assigneeType ?? 'text') === t;
+        entries.push({
+          label: `${on ? '✓ ' : '   '}Type: ${t === 'text' ? 'Text' : 'Options'}`,
+          run: () => S.setAssigneeType(doc.id, t),
+        });
+      }
+      entries.push({
+        label: 'Edit people…',
+        run: () =>
+          setPrompt({
+            title: 'People',
+            hint: 'Comma separated. Used when Assignee is an options column, and to colour by assignee.',
+            value: S.assigneeOptions(doc).join(', '),
+            placeholder: 'Ana, Kim, Ravi',
+            onSubmit: (v) => {
+              S.setAssigneeOptions(doc.id, v.split(','));
+              S.setAssigneeType(doc.id, 'select');
+            },
+          }),
+      });
+    }
 
     if (col.numeric) {
       entries.push({ separator: true });
@@ -511,8 +541,6 @@ export default function TreeTableView({ doc, theme, selectedId, onSelect }: Prop
           </thead>
           <tbody>
             {rows.map(({ item, depth, hasChildren }) => {
-              const color = S.resolveColor(doc.items, item);
-              const inherited = !item.color;
               const invalidDrop =
                 dragId.current != null && !S.canReparent(doc.items, dragId.current, item.id);
               return (
@@ -529,8 +557,9 @@ export default function TreeTableView({ doc, theme, selectedId, onSelect }: Prop
                     onSelect(item.id);
                     setMenu(rowMenu(item, e.clientX, e.clientY));
                   }}
-                  draggable
+                  draggable={!sort}
                   onDragStart={(e) => {
+                    if (sort) return;
                     dragId.current = item.id;
                     e.dataTransfer.effectAllowed = 'move';
                     e.dataTransfer.setData('text/plain', item.title);
@@ -552,217 +581,24 @@ export default function TreeTableView({ doc, theme, selectedId, onSelect }: Prop
                     if (id && S.canReparent(doc.items, id, item.id)) S.reparentItem(doc.id, id, item.id);
                   }}
                 >
-                  <td className="col-matrix">
-                    <input
-                      type="checkbox"
-                      className="matrix-check"
-                      checked={item.showInMatrix}
-                      title={item.showInMatrix ? 'Shown on the matrix' : 'Hidden from the matrix'}
-                      onChange={(e) => S.setShowInMatrix(doc.id, item.id, e.target.checked)}
-                      onClick={(e) => e.stopPropagation()}
-                    />
-                  </td>
-
-                  <td className="col-title">
-                    <div className="tree-cell" style={{ paddingLeft: depth * INDENT }}>
-                      <button
-                        type="button"
-                        className={`twisty${hasChildren ? '' : ' leaf'}${
-                          hasChildren && !item.collapsed ? ' open' : ''
-                        }`}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          if (hasChildren) S.toggleCollapse(doc.id, item.id);
-                        }}
-                      >
-                        {hasChildren ? '▸' : '·'}
-                      </button>
-                      <span
-                        className={`row-swatch${inherited ? ' inherited' : ''}`}
-                        style={{ background: color }}
-                        title={inherited ? 'Inherited color' : 'Own color'}
-                      />
-                      <input
-                        className="cell-input title-input"
-                        ref={(el) => {
-                          if (el && focusItem === item.id) {
-                            el.focus();
-                            el.select();
-                            setFocusItem(null);
-                          }
-                        }}
-                        value={item.title}
-                        onChange={(e) => S.updateItem(doc.id, item.id, { title: e.target.value }, `t:${item.id}`)}
-                        onKeyDown={(e) => onRowKey(e, item)}
-                        onFocus={() => onSelect(item.id)}
-                        spellCheck={false}
-                      />
-                    </div>
-                  </td>
-
-                  <td className="col-quadrant">
-                    <span
-                      className="quadrant-chip"
-                      style={{ ['--chip' as string]: QUADRANT_COLOR[quadrantOf(item.urgency, item.importance)] }}
-                      title="Derived from urgency and importance — not editable"
-                    >
-                      {QUADRANT_LABEL[quadrantOf(item.urgency, item.importance)]}
-                    </span>
-                  </td>
-
-                  <td className="col-status">
-                    <select
-                      className="cell-select"
-                      value={item.status}
-                      style={{ color: STATUS_COLOR[item.status] }}
-                      onChange={(e) =>
-                        S.updateItem(doc.id, item.id, { status: e.target.value as TodoItem['status'] })
-                      }
-                    >
-                      {STATUSES.map((s) => (
-                        <option key={s} value={s}>
-                          {STATUS_LABEL[s]}
-                        </option>
-                      ))}
-                    </select>
-                  </td>
-
-                  <td className="col-assignee">
-                    <input
-                      className="cell-input"
-                      value={item.assignee}
-                      placeholder="—"
-                      onChange={(e) =>
-                        S.updateItem(doc.id, item.id, { assignee: e.target.value }, `a:${item.id}`)
-                      }
-                      spellCheck={false}
-                    />
-                  </td>
-
-                  {(['urgency', 'importance', 'weight'] as const).map((field) => (
-                    <NumberCell
-                      key={field}
-                      display={S.columnDisplay(doc, field)}
-                      value={item[field]}
-                      range={ranges[field]}
-                      theme={theme}
-                      step={0.5}
-                      min={1}
-                      max={10}
-                      onCommit={(n) =>
-                        S.updateItem(doc.id, item.id, { [field]: round1(clamp(n, 1, 10)) }, `n:${item.id}:${field}`)
-                      }
-                    />
-                  ))}
-
-                  <td className="col-color">
-                    <div className="color-cell">
-                      <input
-                        type="color"
-                        value={color}
-                        onChange={(e) => S.updateItem(doc.id, item.id, { color: e.target.value })}
-                        title={inherited ? 'Inherited — pick to override' : 'Own color'}
-                      />
-                      <button
-                        type="button"
-                        className="col-x"
-                        disabled={inherited}
-                        title="Inherit from parent"
-                        onClick={() => S.updateItem(doc.id, item.id, { color: null })}
-                      >
-                        ↺
-                      </button>
-                    </div>
-                  </td>
-
-                  {defs.map((def) => (
-                    <PropertyCell
-                      key={def.name}
+                  {columns.map((col) => (
+                    <Cell
+                      key={col.key}
+                      col={col}
                       doc={doc}
                       item={item}
-                      def={def}
+                      depth={depth}
+                      hasChildren={hasChildren}
                       theme={theme}
-                      range={ranges[`prop:${def.name}`]}
+                      ranges={ranges}
+                      sorted={Boolean(sort)}
+                      focusItem={focusItem}
+                      onFocused={() => setFocusItem(null)}
+                      onSelect={onSelect}
+                      onRowKey={onRowKey}
+                      selectedId={selectedId}
                     />
                   ))}
-
-                  <td className="col-actions">
-                    <button
-                      type="button"
-                      className="row-btn"
-                      title="Add child"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onSelect(S.addItem(doc.id, item.id));
-                      }}
-                    >
-                      +
-                    </button>
-                    <button
-                      type="button"
-                      className="row-btn"
-                      title="Outdent (Shift+Tab)"
-                      disabled={!item.parentId}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        S.outdentItem(doc.id, item.id);
-                      }}
-                    >
-                      ←
-                    </button>
-                    <button
-                      type="button"
-                      className="row-btn"
-                      title="Indent (Tab)"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        S.indentItem(doc.id, item.id);
-                      }}
-                    >
-                      →
-                    </button>
-                    <button
-                      type="button"
-                      className="row-btn"
-                      title={sort ? 'Clear the sort to reorder manually' : 'Move up'}
-                      disabled={!!sort}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        S.moveItem(doc.id, item.id, -1);
-                      }}
-                    >
-                      ↑
-                    </button>
-                    <button
-                      type="button"
-                      className="row-btn"
-                      title={sort ? 'Clear the sort to reorder manually' : 'Move down'}
-                      disabled={!!sort}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        S.moveItem(doc.id, item.id, 1);
-                      }}
-                    >
-                      ↓
-                    </button>
-                    <button
-                      type="button"
-                      className="row-btn danger"
-                      title="Move to trash"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        const kids = S.descendantIds(doc.items, item.id).length;
-                        const what = kids
-                          ? `"${item.title}" and ${kids} descendant${kids === 1 ? '' : 's'}`
-                          : `"${item.title}"`;
-                        if (!confirm(`Move ${what} to this document's trash?`)) return;
-                        S.deleteItem(doc.id, item.id);
-                        if (selectedId === item.id) onSelect(null);
-                      }}
-                    >
-                      ×
-                    </button>
-                  </td>
                 </tr>
               );
             })}
@@ -781,6 +617,319 @@ export default function TreeTableView({ doc, theme, selectedId, onSelect }: Prop
       {prompt && <Prompt state={prompt} onClose={() => setPrompt(null)} />}
     </div>
   );
+}
+
+
+/* ------------------------------------------------------------- one cell */
+
+/**
+ * Renders whichever column it is handed. Both the header row and the body map
+ * over the same `columns` array, so reordering a column moves its data with it.
+ */
+function Cell({
+  col,
+  doc,
+  item,
+  depth,
+  hasChildren,
+  theme,
+  ranges,
+  sorted,
+  focusItem,
+  onFocused,
+  onSelect,
+  onRowKey,
+  selectedId,
+}: {
+  col: Column;
+  doc: TodoDoc;
+  item: TodoItem;
+  depth: number;
+  hasChildren: boolean;
+  theme: 'dark' | 'light';
+  ranges: Record<string, Range>;
+  sorted: boolean;
+  focusItem: string | null;
+  onFocused: () => void;
+  onSelect: (id: string | null) => void;
+  onRowKey: (e: React.KeyboardEvent, item: TodoItem) => void;
+  selectedId: string | null;
+}) {
+  if (col.def) {
+    return (
+      <PropertyCell
+        doc={doc}
+        item={item}
+        def={col.def}
+        theme={theme}
+        range={ranges[`prop:${col.def.name}`]}
+      />
+    );
+  }
+
+  switch (col.key) {
+    case 'matrix':
+      return (
+        <td className="col-matrix">
+          <input
+            type="checkbox"
+            className="matrix-check"
+            checked={item.showInMatrix}
+            title={item.showInMatrix ? 'Shown on the matrix' : 'Hidden from the matrix'}
+            onChange={(e) => S.setShowInMatrix(doc.id, item.id, e.target.checked)}
+            onClick={(e) => e.stopPropagation()}
+          />
+        </td>
+      );
+
+    case 'title': {
+      const color = S.resolveColor(doc.items, item);
+      const inherited = !item.color;
+      return (
+        <td className="col-title">
+          {/* Sorting flattens the list, so indentation and twisties go away. */}
+          <div className="tree-cell" style={{ paddingLeft: sorted ? 0 : depth * INDENT }}>
+            {!sorted && (
+              <button
+                type="button"
+                className={`twisty${hasChildren ? '' : ' leaf'}${
+                  hasChildren && !item.collapsed ? ' open' : ''
+                }`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (hasChildren) S.toggleCollapse(doc.id, item.id);
+                }}
+              >
+                {hasChildren ? '▸' : '·'}
+              </button>
+            )}
+            <span
+              className={`row-swatch${inherited ? ' inherited' : ''}`}
+              style={{ background: color }}
+              title={inherited ? 'Inherited color' : 'Own color'}
+            />
+            <input
+              className="cell-input title-input"
+              ref={(el) => {
+                if (el && focusItem === item.id) {
+                  el.focus();
+                  el.select();
+                  onFocused();
+                }
+              }}
+              value={item.title}
+              onChange={(e) => S.updateItem(doc.id, item.id, { title: e.target.value }, `t:${item.id}`)}
+              onKeyDown={(e) => onRowKey(e, item)}
+              onFocus={() => onSelect(item.id)}
+              spellCheck={false}
+            />
+          </div>
+        </td>
+      );
+    }
+
+    case 'quadrant': {
+      const q = quadrantOf(item.urgency, item.importance);
+      return (
+        <td className="col-quadrant">
+          <span
+            className="quadrant-chip"
+            style={{ ['--chip' as string]: QUADRANT_COLOR[q] }}
+            title="Derived from urgency and importance — not editable"
+          >
+            {QUADRANT_LABEL[q]}
+          </span>
+        </td>
+      );
+    }
+
+    case 'status':
+      return (
+        <td className="col-status">
+          <select
+            className="cell-select"
+            value={item.status}
+            style={{ color: STATUS_COLOR[item.status] }}
+            onChange={(e) =>
+              S.updateItem(doc.id, item.id, { status: e.target.value as TodoItem['status'] })
+            }
+          >
+            {STATUSES.map((st) => (
+              <option key={st} value={st}>
+                {STATUS_LABEL[st]}
+              </option>
+            ))}
+          </select>
+        </td>
+      );
+
+    case 'assignee': {
+      // Assignee can be a free-text field or a list of people to choose from.
+      const options = S.assigneeOptions(doc);
+      if (S.assigneeIsSelect(doc)) {
+        const missing = item.assignee.trim() && !options.includes(item.assignee.trim());
+        return (
+          <td className="col-assignee">
+            <select
+              className={`cell-select${missing ? ' missing' : ''}`}
+              value={item.assignee.trim()}
+              onChange={(e) => S.updateItem(doc.id, item.id, { assignee: e.target.value })}
+            >
+              <option value="">—</option>
+              {missing && <option value={item.assignee.trim()}>{item.assignee.trim()} (not an option)</option>}
+              {options.map((o) => (
+                <option key={o} value={o}>
+                  {o}
+                </option>
+              ))}
+            </select>
+          </td>
+        );
+      }
+      return (
+        <td className="col-assignee">
+          <input
+            className="cell-input"
+            value={item.assignee}
+            placeholder="—"
+            onChange={(e) => S.updateItem(doc.id, item.id, { assignee: e.target.value }, `a:${item.id}`)}
+            spellCheck={false}
+          />
+        </td>
+      );
+    }
+
+    case 'urgency':
+    case 'importance':
+    case 'weight': {
+      const field = col.key as 'urgency' | 'importance' | 'weight';
+      return (
+        <NumberCell
+          display={S.columnDisplay(doc, field)}
+          value={item[field]}
+          range={ranges[field]}
+          theme={theme}
+          step={0.5}
+          min={1}
+          max={10}
+          onCommit={(n) =>
+            S.updateItem(doc.id, item.id, { [field]: round1(clamp(n, 1, 10)) }, `n:${item.id}:${field}`)
+          }
+        />
+      );
+    }
+
+    case 'color': {
+      const color = S.resolveColor(doc.items, item);
+      const inherited = !item.color;
+      return (
+        <td className="col-color">
+          <div className="color-cell">
+            <input
+              type="color"
+              value={color}
+              onChange={(e) => S.updateItem(doc.id, item.id, { color: e.target.value })}
+              title={inherited ? 'Inherited — pick to override' : 'Own color'}
+            />
+            <button
+              type="button"
+              className="col-x"
+              disabled={inherited}
+              title="Inherit from parent"
+              onClick={() => S.updateItem(doc.id, item.id, { color: null })}
+            >
+              ↺
+            </button>
+          </div>
+        </td>
+      );
+    }
+
+    case 'actions':
+      return (
+        <td className="col-actions">
+          <button
+            type="button"
+            className="row-btn"
+            title="Add child"
+            onClick={(e) => {
+              e.stopPropagation();
+              onSelect(S.addItem(doc.id, item.id));
+            }}
+          >
+            +
+          </button>
+          <button
+            type="button"
+            className="row-btn"
+            title="Outdent (Shift+Tab)"
+            disabled={!item.parentId || sorted}
+            onClick={(e) => {
+              e.stopPropagation();
+              S.outdentItem(doc.id, item.id);
+            }}
+          >
+            ←
+          </button>
+          <button
+            type="button"
+            className="row-btn"
+            title="Indent (Tab)"
+            disabled={sorted}
+            onClick={(e) => {
+              e.stopPropagation();
+              S.indentItem(doc.id, item.id);
+            }}
+          >
+            →
+          </button>
+          <button
+            type="button"
+            className="row-btn"
+            title={sorted ? 'Clear the sort to reorder manually' : 'Move up'}
+            disabled={sorted}
+            onClick={(e) => {
+              e.stopPropagation();
+              S.moveItem(doc.id, item.id, -1);
+            }}
+          >
+            ↑
+          </button>
+          <button
+            type="button"
+            className="row-btn"
+            title={sorted ? 'Clear the sort to reorder manually' : 'Move down'}
+            disabled={sorted}
+            onClick={(e) => {
+              e.stopPropagation();
+              S.moveItem(doc.id, item.id, 1);
+            }}
+          >
+            ↓
+          </button>
+          <button
+            type="button"
+            className="row-btn danger"
+            title="Move to trash"
+            onClick={(e) => {
+              e.stopPropagation();
+              const kids = S.descendantIds(doc.items, item.id).length;
+              const what = kids
+                ? `"${item.title}" and ${kids} descendant${kids === 1 ? '' : 's'}`
+                : `"${item.title}"`;
+              if (!confirm(`Move ${what} to this document's trash?`)) return;
+              S.deleteItem(doc.id, item.id);
+              if (selectedId === item.id) onSelect(null);
+            }}
+          >
+            ×
+          </button>
+        </td>
+      );
+
+    default:
+      return <td />;
+  }
 }
 
 /* ------------------------------------------------------------ number cell */

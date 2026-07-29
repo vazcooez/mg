@@ -113,6 +113,13 @@ export function cardColor(doc: TodoDoc, item: TodoItem): string {
   const by = doc.colorBy;
   if (!by || by === 'own') return resolveColor(doc.items, item);
   if (by === 'status') return STATUS_COLOR[item.status];
+  if (by === 'assignee') {
+    const who = item.assignee.trim();
+    if (!who) return '#6b7885';
+    const people = assigneeOptions(doc);
+    const at = people.indexOf(who);
+    return COLOR_PRESETS[(at < 0 ? hashString(who) : at) % COLOR_PRESETS.length];
+  }
   if (by === 'quadrant') return QUADRANT_COLOR[quadrantOf(item.urgency, item.importance)];
   if (!by.startsWith('prop:')) return resolveColor(doc.items, item);
 
@@ -142,6 +149,38 @@ function hashString(s: string): number {
   return h;
 }
 
+/* ------------------------------------------------------------- assignee */
+
+/**
+ * Assignee is a built-in column, but it can behave like an options property:
+ * declare the people once and pick from a list instead of retyping names.
+ */
+export function assigneeIsSelect(doc: TodoDoc): boolean {
+  return doc.assigneeType === 'select';
+}
+
+/** Declared people, falling back to whoever is already assigned. */
+export function assigneeOptions(doc: TodoDoc): string[] {
+  const declared = (doc.assigneeOptions ?? []).map((s) => s.trim()).filter(Boolean);
+  if (declared.length) return declared;
+  return [...new Set(liveItems(doc).map((i) => i.assignee.trim()).filter(Boolean))].sort();
+}
+
+export function setAssigneeType(docId: string, type: 'text' | 'select') {
+  updateTodo(docId, (d) => ({
+    ...d,
+    assigneeType: type,
+    // Switching to a list seeds it from the names already in use.
+    assigneeOptions:
+      type === 'select' && !(d.assigneeOptions ?? []).length ? assigneeOptions(d) : d.assigneeOptions,
+  }));
+}
+
+export function setAssigneeOptions(docId: string, options: string[]) {
+  const clean = [...new Set(options.map((o) => o.trim()).filter(Boolean))];
+  updateTodo(docId, (d) => ({ ...d, assigneeOptions: clean }));
+}
+
 export function setColorBy(docId: string, by: string) {
   updateTodo(docId, (d) => ({ ...d, colorBy: by }), { noHistory: true });
 }
@@ -152,6 +191,7 @@ export function colorByOptions(doc: TodoDoc): Array<{ key: string; label: string
     { key: 'own', label: 'Item colour' },
     { key: 'quadrant', label: 'Quadrant' },
     { key: 'status', label: 'Status' },
+    { key: 'assignee', label: 'Assignee' },
     ...propertyDefsOf(doc)
       .filter((d) => d.type === 'select' || d.type === 'number' || d.type === 'text')
       .map((d) => ({ key: `prop:${d.name}`, label: d.name })),
@@ -166,6 +206,8 @@ export function makeTodoDoc(title = 'Untitled todo'): TodoDoc {
     title,
     items: [],
     propertyDefs: [],
+    assigneeType: 'text',
+    assigneeOptions: [],
     view: 'matrix',
     path: null,
     saved: null,
@@ -246,6 +288,8 @@ export function serializeDoc(doc: Doc): string {
         version: 1,
         title: doc.title,
         propertyDefs: doc.propertyDefs,
+        assigneeType: doc.assigneeType,
+        assigneeOptions: doc.assigneeOptions,
         items: doc.items,
       },
       null,
@@ -279,7 +323,10 @@ export function parseDocBody(
       type: 'diagram',
       title: data.title || title,
       nodes: (data.nodes ?? []).filter((n) => n && typeof n.id === 'string'),
-      edges: (data.edges ?? []).filter((e) => e && typeof e.id === 'string'),
+      // Diagrams written before routing styles default to elbow connectors.
+      edges: (data.edges ?? [])
+        .filter((e) => e && typeof e.id === 'string')
+        .map((e) => ({ ...e, route: e.route ?? 'orthogonal' })),
     };
   }
   type LegacyTodo = Partial<TodoDoc> & { propertyColumns?: string[] };
@@ -296,6 +343,8 @@ export function parseDocBody(
     title: data.title || title,
     items: normalize((data.items ?? []).map((it) => ({ ...makeItem(it.parentId ?? null), ...it }))),
     propertyDefs: readPropertyDefs(data),
+    assigneeType: data.assigneeType === 'select' ? 'select' : 'text',
+    assigneeOptions: Array.isArray(data.assigneeOptions) ? data.assigneeOptions : [],
     view: data.view === 'tree' ? 'tree' : 'matrix',
   };
 }
@@ -2194,6 +2243,7 @@ export function addDiagramEdge(docId: string, from: string, to: string, fromPort
       to,
       label: '',
       style: 'solid',
+      route: 'orthogonal',
       arrow: 'end',
       fromPort,
       toPort: 'auto',

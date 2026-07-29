@@ -370,6 +370,30 @@ kbd {
   background: var(--ok);
 }
 
+/* Per-kind glyphs: shape carries the meaning, colour only reinforces it. */
+.doc-icon {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 14px;
+}
+
+.doc-icon-todo {
+  fill: var(--accent);
+  stroke: none;
+}
+
+.doc-icon-note {
+  fill: none;
+  stroke: var(--ok);
+  stroke-linecap: round;
+}
+
+.doc-icon-diagram {
+  fill: none;
+  stroke: var(--warn);
+  stroke-linecap: round;
+}
+
 /* ============================================================= pane grid */
 
 .pane-grid {
@@ -2300,6 +2324,18 @@ input[type='color']::-webkit-color-swatch {
   padding-left: 1.5em;
 }
 
+/* Blocks inside a multi-line selection show their markdown source. */
+.live-raw {
+  font-family: var(--font-mono);
+  font-size: calc(var(--editor-font-size) * 0.92);
+  line-height: 1.7;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--text-dim);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  min-height: 1.7em;
+}
+
 .live-source {
   display: block;
   border: 0;
@@ -2959,6 +2995,19 @@ summary.callout-title {
 .d-edge.sel .d-edge-line {
   stroke: var(--accent);
   stroke-width: 3;
+}
+
+/* Endpoints of a selected connector: drag either onto another shape. */
+.d-endpoint {
+  fill: var(--bg);
+  stroke: var(--accent);
+  stroke-width: 2.5;
+  cursor: grab;
+  pointer-events: all;
+}
+
+.d-endpoint:hover {
+  fill: var(--accent);
 }
 
 .d-edge-ghost {

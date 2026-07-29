@@ -24,6 +24,8 @@ interface Props {
 export default function LiveMarkdown({ doc, onOpenLink }: Props) {
   const blocks = useMemo(() => scanBlocks(doc.content), [doc.content]);
   const [active, setActive] = useState<number | null>(null);
+  /** Inclusive block range currently shown as raw markdown by a selection. */
+  const [rawRange, setRawRange] = useState<[number, number] | null>(null);
   /** Caret offset to apply once the source textarea mounts. */
   const pendingCaret = useRef<number | null>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
@@ -33,6 +35,58 @@ export default function LiveMarkdown({ doc, onOpenLink }: Props) {
   useEffect(() => {
     if (active != null && active >= blocks.length) setActive(blocks.length - 1);
   }, [active, blocks.length]);
+
+  /**
+   * A selection spanning more than one block un-renders every block it touches,
+   * so what you select — and therefore what you copy — is the markdown source
+   * rather than the rendered text.
+   */
+  useEffect(() => {
+    const onSelectionChange = () => {
+      const sel = document.getSelection();
+      const root = rootRef.current;
+      if (!sel || !root || sel.isCollapsed || !sel.rangeCount) {
+        setRawRange(null);
+        return;
+      }
+      const range = sel.getRangeAt(0);
+      if (!root.contains(range.commonAncestorContainer)) {
+        setRawRange(null);
+        return;
+      }
+      const touched: number[] = [];
+      root.querySelectorAll<HTMLElement>('[data-block]').forEach((el) => {
+        if (range.intersectsNode(el)) touched.push(Number(el.dataset.block));
+      });
+      // One block is ordinary editing; two or more means "show me the source".
+      setRawRange(touched.length > 1 ? [Math.min(...touched), Math.max(...touched)] : null);
+    };
+    document.addEventListener('selectionchange', onSelectionChange);
+    return () => document.removeEventListener('selectionchange', onSelectionChange);
+  }, []);
+
+  /** Select-all inside the editor selects the whole document as source. */
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const root = rootRef.current;
+      if (!root || !(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== 'a') return;
+      if (!root.contains(document.activeElement) && document.activeElement !== root) return;
+      e.preventDefault();
+      setActive(null);
+      setRawRange([0, blocks.length - 1]);
+      // Let the raw blocks render before selecting across them.
+      requestAnimationFrame(() => {
+        const sel = document.getSelection();
+        if (!sel) return;
+        const range = document.createRange();
+        range.selectNodeContents(root);
+        sel.removeAllRanges();
+        sel.addRange(range);
+      });
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [blocks.length]);
 
   useLayoutEffect(() => {
     const ta = taRef.current;
@@ -77,6 +131,9 @@ export default function LiveMarkdown({ doc, onOpenLink }: Props) {
       window.open(anchor.href, '_blank');
       return;
     }
+
+    // A click ends the multi-block selection and returns to editing.
+    if (rawRange) setRawRange(null);
 
     const host = el.closest<HTMLElement>('[data-block]');
     if (!host) return;
@@ -197,7 +254,12 @@ export default function LiveMarkdown({ doc, onOpenLink }: Props) {
       }}
     >
       {blocks.map((b, i) =>
-        i === active ? (
+        rawRange && i >= rawRange[0] && i <= rawRange[1] ? (
+          // Selected span: the markdown itself, so copying yields source.
+          <div key={`raw-${i}`} data-block={i} className="live-block live-raw">
+            {b.src || ' '}
+          </div>
+        ) : i === active ? (
           <textarea
             key={`src-${i}`}
             ref={taRef}

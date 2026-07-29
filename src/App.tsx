@@ -292,6 +292,12 @@ export default function App() {
         return;
       }
 
+      // Ctrl+Tab cycles tabs; handled here as well as on the menu accelerator.
+      if (ctrl && e.key === 'Tab') {
+        e.preventDefault();
+        S.cycleTab(pane.id, e.shiftKey ? -1 : 1);
+        return;
+      }
       if (ctrl && e.shiftKey && e.key.toLowerCase() === 'p') {
         e.preventDefault();
         setPalette('command');
