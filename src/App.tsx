@@ -58,11 +58,11 @@ export default function App() {
   /* ------------------------------------------------------------ actions */
 
   const setDocView = useCallback(
-    (view: 'matrix' | 'tree' | 'plain' | 'live' | 'source' | 'split') => {
+    (view: 'matrix' | 'tree' | 'calendar' | 'plain' | 'live' | 'source' | 'split') => {
       const doc = S.findDoc(ws, activeId);
       if (!doc) return;
       if (doc.type === 'todo') {
-        if (view === 'matrix' || view === 'tree') S.setTodoView(doc.id, view);
+        if (view === 'matrix' || view === 'tree' || view === 'calendar') S.setTodoView(doc.id, view);
         else flash('That view belongs to free notes.');
         return;
       }
@@ -181,6 +181,9 @@ export default function App() {
           break;
         case 'view-tree':
           setDocView('tree');
+          break;
+        case 'view-calendar':
+          setDocView('calendar');
           break;
         case 'view-plain':
           setDocView('plain');
@@ -428,7 +431,13 @@ export default function App() {
         { id: 'c:add-item', label: 'Todo: Add Root Item', run: () => S.addItem(activeDoc.id, null) },
         { id: 'c:expand', label: 'Todo: Expand All', run: () => S.setAllCollapsed(activeDoc.id, false) },
         { id: 'c:collapse', label: 'Todo: Collapse All', run: () => S.setAllCollapsed(activeDoc.id, true) },
-        { id: 'c:view-trash', label: 'View: Trash', run: () => S.setTodoView(activeDoc.id, 'trash') }
+        { id: 'c:view-trash', label: 'View: Trash', run: () => S.setTodoView(activeDoc.id, 'trash') },
+        {
+          id: 'c:view-calendar',
+          label: 'View: Calendar',
+          detail: 'Ctrl+Alt+7',
+          run: () => S.setTodoView(activeDoc.id, 'calendar'),
+        }
       );
     }
     if (activeDoc?.type === 'note') {

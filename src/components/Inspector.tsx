@@ -171,6 +171,43 @@ export default function Inspector({
         </div>
 
         <div className="field">
+          <label>
+            Schedule <span className="field-hint">calendar view</span>
+          </label>
+          <div className="slider-row">
+            <input
+              className="text-input"
+              type="datetime-local"
+              value={item.scheduledAt ?? ''}
+              onChange={(e) => S.setSchedule(doc.id, item.id, e.target.value || null)}
+            />
+            {item.scheduledAt && (
+              <button
+                type="button"
+                className="row-btn"
+                title="Unschedule"
+                onClick={() => S.setSchedule(doc.id, item.id, null)}
+              >
+                ×
+              </button>
+            )}
+          </div>
+          {item.scheduledAt && (
+            <div className="slider-row">
+              <input
+                className="num-input"
+                type="number"
+                min={15}
+                step={15}
+                value={item.durationMin}
+                onChange={(e) => S.setDuration(doc.id, item.id, Number(e.target.value) || 15)}
+              />
+              <span className="field-hint">minutes</span>
+            </div>
+          )}
+        </div>
+
+        <div className="field">
           <label>Status</label>
           <div className="status-row">
             {STATUSES.map((s) => (

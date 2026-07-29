@@ -1,8 +1,10 @@
 import { useSyncExternalStore } from 'react';
 import { fraction, rampStep, rangeOf } from './scale';
+import { SLOT_MINUTES } from './calendar';
 import {
   baseName,
   clamp,
+  CalendarMode,
   COLOR_PRESETS,
   DEFAULT_AXES,
   DIAGRAM_EXT,
@@ -16,6 +18,7 @@ import {
   quadrantOf,
   STATUS_COLOR,
   DEFAULT_COLOR,
+  DEFAULT_DURATION_MIN,
   DEFAULT_SETTINGS,
   defaultColumnWidth,
   dirName,
@@ -80,6 +83,8 @@ export function makeItem(parentId: string | null, overrides: Partial<TodoItem> =
     collapsed: false,
     showInMatrix: true,
     deletedAt: null,
+    scheduledAt: null,
+    durationMin: DEFAULT_DURATION_MIN,
     ...overrides,
   };
 }
@@ -908,6 +913,8 @@ interface SessionDoc {
   sort?: SortSpec | null;
   axes?: MatrixAxes;
   zoom?: number;
+  calMode?: CalendarMode;
+  calAnchor?: string;
   panX?: number;
   panY?: number;
   snap?: boolean;
@@ -950,6 +957,8 @@ function toSession(ws: Workspace): Session {
       colorBy: d.type === 'todo' ? d.colorBy : undefined,
       sort: d.type === 'todo' ? (d.sort ?? null) : undefined,
       axes: d.type === 'todo' ? d.axes : undefined,
+      calMode: d.type === 'todo' ? d.calMode : undefined,
+      calAnchor: d.type === 'todo' ? d.calAnchor : undefined,
       zoom: d.type === 'note' ? undefined : d.zoom,
       panX: d.type === 'diagram' ? d.panX : undefined,
       panY: d.type === 'diagram' ? d.panY : undefined,
@@ -1018,13 +1027,22 @@ function docFromSession(sd: SessionDoc): Doc {
     ...base,
     ...body,
     title: sd.title,
-    view: sd.view === 'tree' ? 'tree' : sd.view === 'trash' ? 'trash' : 'matrix',
+    view:
+      sd.view === 'tree'
+        ? 'tree'
+        : sd.view === 'trash'
+          ? 'trash'
+          : sd.view === 'calendar'
+            ? 'calendar'
+            : 'matrix',
     columnWidths: sd.columnWidths ?? {},
     columnDisplay: sd.columnDisplay ?? {},
     columnOrder: sd.columnOrder,
     colorBy: sd.colorBy ?? 'own',
     sort: sd.sort ?? null,
     axes: sd.axes ?? { ...DEFAULT_AXES },
+    calMode: sd.calMode === 'day' ? 'day' : 'week',
+    calAnchor: sd.calAnchor,
     zoom: sd.zoom ?? 1,
   } as TodoDoc;
 }
@@ -1164,6 +1182,8 @@ interface DocUi {
   sort?: SortSpec | null;
   axes?: MatrixAxes;
   zoom?: number;
+  calMode?: CalendarMode;
+  calAnchor?: string;
   panX?: number;
   panY?: number;
   snap?: boolean;
@@ -1180,6 +1200,8 @@ function pickUi(doc: Doc): DocUi {
     sort: doc.sort,
     axes: doc.axes,
     zoom: doc.zoom,
+    calMode: doc.calMode,
+    calAnchor: doc.calAnchor,
   };
 }
 
@@ -1202,7 +1224,14 @@ function applyUi(doc: Doc, ui: DocUi): Doc {
   }
   return {
     ...doc,
-    view: ui.view === 'tree' ? 'tree' : ui.view === 'trash' ? 'trash' : 'matrix',
+    view:
+      ui.view === 'tree'
+        ? 'tree'
+        : ui.view === 'trash'
+          ? 'trash'
+          : ui.view === 'calendar'
+            ? 'calendar'
+            : 'matrix',
     columnOrder: ui.columnOrder ?? doc.columnOrder,
     colorBy: ui.colorBy ?? doc.colorBy,
     columnWidths: ui.columnWidths ?? doc.columnWidths,
@@ -1210,6 +1239,8 @@ function applyUi(doc: Doc, ui: DocUi): Doc {
     sort: ui.sort ?? doc.sort,
     axes: ui.axes ?? doc.axes,
     zoom: ui.zoom ?? doc.zoom,
+    calMode: ui.calMode ?? doc.calMode,
+    calAnchor: ui.calAnchor ?? doc.calAnchor,
   };
 }
 
@@ -1779,6 +1810,50 @@ export function setMetrics(
 }
 
 /** Moves an item and its descendants to the document's trash. */
+/* ------------------------------------------------------------ calendar */
+
+/** Items with a start time, in chronological order. */
+export function scheduledItems(doc: TodoDoc): TodoItem[] {
+  return liveItems(doc)
+    .filter((i) => Boolean(i.scheduledAt))
+    .sort((a, b) => (a.scheduledAt ?? '').localeCompare(b.scheduledAt ?? ''));
+}
+
+export function unscheduledItems(doc: TodoDoc): TodoItem[] {
+  return liveItems(doc).filter((i) => !i.scheduledAt);
+}
+
+/** Sets or clears an item's slot on the calendar. */
+export function setSchedule(
+  docId: string,
+  itemId: string,
+  scheduledAt: string | null,
+  durationMin?: number,
+  coalesce?: string
+) {
+  const patch: Partial<TodoItem> = { scheduledAt };
+  if (durationMin != null) patch.durationMin = Math.max(SLOT_MINUTES, Math.round(durationMin));
+  updateItem(docId, itemId, patch, coalesce);
+}
+
+/** Duration only — resizing a block must never disturb its start time. */
+export function setDuration(docId: string, itemId: string, minutes: number, coalesce?: string) {
+  updateItem(
+    docId,
+    itemId,
+    { durationMin: Math.max(SLOT_MINUTES, Math.round(minutes)) },
+    coalesce
+  );
+}
+
+export function setCalendarMode(docId: string, calMode: CalendarMode) {
+  updateTodo(docId, (d) => ({ ...d, calMode }), { noHistory: true });
+}
+
+export function setCalendarAnchor(docId: string, calAnchor: string) {
+  updateTodo(docId, (d) => ({ ...d, calAnchor }), { noHistory: true });
+}
+
 /** Weight (area) and aspect move together when a card is resized. */
 export function setCardShape(
   docId: string,

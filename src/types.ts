@@ -43,6 +43,13 @@ export interface TodoItem {
   /** When set, the item is in the document's trash rather than deleted. */
   deletedAt: number | null;
   /**
+   * Local wall-clock start, `YYYY-MM-DDTHH:mm`, or null when unscheduled.
+   * Items with a start appear on the calendar.
+   */
+  scheduledAt: string | null;
+  /** Length of the scheduled block, in minutes. */
+  durationMin: number;
+  /**
    * Whether this item gets a card in the Eisenhower matrix. Grouping parents
    * are often structure rather than work, so they can be kept off the board
    * while still owning their children.
@@ -108,7 +115,7 @@ export interface MatrixAxes {
 
 export const DEFAULT_AXES: MatrixAxes = { swap: false, flipX: false, flipY: false };
 
-export type TodoView = 'matrix' | 'tree' | 'trash';
+export type TodoView = 'matrix' | 'tree' | 'calendar' | 'trash';
 export type NoteView = 'plain' | 'markdown';
 
 /* ------------------------------------------------------------- quadrant */
@@ -190,9 +197,17 @@ export interface TodoDoc extends DocFile {
   axes?: MatrixAxes;
   /** Matrix card scale. Purely visual — positions and values are untouched. */
   zoom?: number;
+  /** Calendar: day or week, and the date being looked at. */
+  calMode?: CalendarMode;
+  calAnchor?: string;
   createdAt: number;
   updatedAt: number;
 }
+
+/** Calendar view state. */
+export type CalendarMode = 'day' | 'week';
+
+export const DEFAULT_DURATION_MIN = 60;
 
 export const ZOOM_MIN = 0.4;
 export const ZOOM_MAX = 3;

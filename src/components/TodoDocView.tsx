@@ -4,6 +4,7 @@ import * as S from '../store';
 import EisenhowerView from './EisenhowerView';
 import TreeTableView from './TreeTableView';
 import TrashView from './TrashView';
+import CalendarView from './CalendarView';
 import Inspector from './Inspector';
 
 export default function TodoDocView({
@@ -20,6 +21,7 @@ export default function TodoDocView({
 
   const selected = doc.items.find((i) => i.id === selectedId) ?? null;
   const trashed = S.trashCount(doc);
+  const scheduled = S.scheduledItems(doc).length;
 
   // Drop a stale selection when the item disappears.
   useEffect(() => {
@@ -55,6 +57,14 @@ export default function TodoDocView({
           </button>
           <button
             type="button"
+            className={doc.view === 'calendar' ? 'on' : ''}
+            onClick={() => S.setTodoView(doc.id, 'calendar')}
+            title="Scheduled items by day or week"
+          >
+            Calendar{scheduled > 0 ? ` (${scheduled})` : ''}
+          </button>
+          <button
+            type="button"
             className={doc.view === 'trash' ? 'on' : ''}
             onClick={() => S.setTodoView(doc.id, 'trash')}
             title="Deleted items"
@@ -76,6 +86,8 @@ export default function TodoDocView({
         <div className="doc-main">
           {doc.view === 'trash' ? (
             <TrashView doc={doc} />
+          ) : doc.view === 'calendar' ? (
+            <CalendarView doc={doc} selectedId={selectedId} onSelect={setSelectedId} />
           ) : doc.view === 'matrix' ? (
             <EisenhowerView doc={doc} selectedId={selectedId} onSelect={setSelectedId} />
           ) : (

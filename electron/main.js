@@ -200,6 +200,7 @@ function buildMenu() {
               accelerator: 'CmdOrCtrl+Alt+2',
               click: () => send('menu', 'view-tree'),
             },
+            { label: 'Calendar', accelerator: 'CmdOrCtrl+Alt+7', click: () => send('menu', 'view-calendar') },
             { label: 'Plain Text', accelerator: 'CmdOrCtrl+Alt+3', click: () => send('menu', 'view-plain') },
             {
               label: 'Markdown — Live Preview',
