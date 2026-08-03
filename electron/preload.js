@@ -26,7 +26,8 @@ contextBridge.exposeInMainWorld('api', {
   },
   dialog: {
     savePath: (name, type) => ipcRenderer.invoke('dialog:save-path', name, type),
-    confirmClose: (title) => ipcRenderer.invoke('dialog:confirm-close', title),
+    confirmClose: (title, neverSaved) =>
+      ipcRenderer.invoke('dialog:confirm-close', title, neverSaved),
     message: (message, detail) => ipcRenderer.invoke('dialog:message', message, detail),
   },
   setUiScale: (factor) => ipcRenderer.invoke('ui:scale', factor),

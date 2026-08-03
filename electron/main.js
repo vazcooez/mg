@@ -320,7 +320,7 @@ handle('session:write', async (data) => {
 });
 
 handle('dialog:save-path', (name, type) => V.pickSavePath(win, name, type));
-handle('dialog:confirm-close', (title) => V.confirmClose(win, title));
+handle('dialog:confirm-close', (title, neverSaved) => V.confirmClose(win, title, neverSaved));
 handle('dialog:message', async (message, detail) => {
   await dialog.showMessageBox(win, { type: 'info', message, detail, buttons: ['OK'] });
   return { ok: true };

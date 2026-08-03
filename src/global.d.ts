@@ -45,7 +45,10 @@ declare global {
       };
       dialog: {
         savePath(name: string, type: 'todo' | 'note' | 'diagram'): Promise<Ok & { rel?: string }>;
-        confirmClose(title: string): Promise<{ choice: 'save' | 'discard' | 'cancel' }>;
+        confirmClose(
+          title: string,
+          neverSaved?: boolean
+        ): Promise<{ choice: 'save' | 'discard' | 'cancel' }>;
         message(message: string, detail?: string): Promise<Ok>;
       };
       setUiScale(factor: number): Promise<Ok>;

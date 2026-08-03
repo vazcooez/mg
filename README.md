@@ -74,6 +74,12 @@ their own read-only tab with fit-to-window and zoom.
 
 Edits live in a buffer until you save them.
 
+Closing a tab asks **Save / Don't Save / Cancel** when the buffer has unsaved changes,
+and also whenever the document has no file on disk yet — a new document is not
+"modified" in any useful sense, but closing it without saving still throws it away, so
+*Don't Save* deletes it outright. Closing the window is the exception: unsaved work is
+kept and comes back next launch (see below).
+
 | | |
 |---|---|
 | `Ctrl+S` | Save (a never-saved buffer prompts for a filename) |

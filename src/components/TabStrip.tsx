@@ -47,9 +47,9 @@ export default function TabStrip({
         },
         { separator: true },
         { label: 'Close Tab', detail: 'Ctrl+W', run: () => void S.requestCloseTab(pane.id, docId) },
-        { label: 'Close Other Tabs', run: () => S.closeOtherTabs(pane.id, docId) },
-        { label: 'Close Tabs to the Right', run: () => S.closeTabsToRight(pane.id, docId) },
-        { label: 'Close All Tabs', run: () => S.closeAllTabs(pane.id) },
+        { label: 'Close Other Tabs', run: () => void S.closeOtherTabs(pane.id, docId) },
+        { label: 'Close Tabs to the Right', run: () => void S.closeTabsToRight(pane.id, docId) },
+        { label: 'Close All Tabs', run: () => void S.closeAllTabs(pane.id) },
         { separator: true },
         ...others.map((p, i) => ({
           label: `Move to Group ${ws.layout.panes.indexOf(p) + 1}`,

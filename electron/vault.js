@@ -269,15 +269,23 @@ async function pickVault(win) {
   return { ok: true, path: await setVault(res.filePaths[0]) };
 }
 
-/** Sublime's three-way prompt when closing a buffer with unsaved changes. */
-async function confirmClose(win, title) {
+/**
+ * Sublime's three-way prompt when closing a buffer with unsaved changes. A
+ * document that has no file yet gets blunter wording, because "Don't Save"
+ * there does not lose an edit — it throws the whole document away.
+ */
+async function confirmClose(win, title, neverSaved = false) {
   const res = await dialog.showMessageBox(win, {
     type: 'warning',
     buttons: ['Save', "Don't Save", 'Cancel'],
     defaultId: 0,
     cancelId: 2,
-    message: `Save changes to "${title}" before closing?`,
-    detail: 'Your changes will be lost if you close without saving.',
+    message: neverSaved
+      ? `Save "${title}" before closing?`
+      : `Save changes to "${title}" before closing?`,
+    detail: neverSaved
+      ? 'This document has never been saved. Closing without saving deletes it.'
+      : 'Your changes will be lost if you close without saving.',
   });
   return { choice: ['save', 'discard', 'cancel'][res.response] };
 }

@@ -1554,19 +1554,29 @@ export function reopenClosedTab() {
 }
 
 /**
- * Closes a tab, prompting Save / Don't Save / Cancel when the buffer is dirty.
- * Returns false if the user cancelled.
+ * A document that exists only in the session. Closing one without saving throws
+ * the work away, so it always warrants the prompt — even untouched, since a
+ * brand-new buffer matches its own baseline and so never counts as dirty.
+ */
+export function isUnsavedFile(doc: Doc): boolean {
+  return !doc.path;
+}
+
+/**
+ * Closes a tab, prompting Save / Don't Save / Cancel when the buffer is dirty
+ * or has no file behind it. Returns false if the user cancelled.
  */
 export async function requestCloseTab(paneId: string, docId: string): Promise<boolean> {
   const doc = state.docs.find((d) => d.id === docId);
   const shownElsewhere = state.layout.panes.some(
     (p) => p.id !== paneId && p.tabs.includes(docId)
   );
-  if (!doc || shownElsewhere || !isDirty(doc) || !window.api) {
+  const needsPrompt = doc && (isDirty(doc) || isUnsavedFile(doc));
+  if (!doc || shownElsewhere || !needsPrompt || !window.api) {
     closeTab(paneId, docId);
     return true;
   }
-  const { choice } = await window.api.dialog.confirmClose(doc.title);
+  const { choice } = await window.api.dialog.confirmClose(doc.title, isUnsavedFile(doc));
   if (choice === 'cancel') return false;
   if (choice === 'save') {
     const res = await saveDoc(docId);
@@ -1579,23 +1589,36 @@ export async function requestCloseTab(paneId: string, docId: string): Promise<bo
   return true;
 }
 
-export function closeOtherTabs(paneId: string, docId: string) {
-  withLayout((l) => mapPane(l, paneId, (p) => ({ ...p, tabs: [docId], activeTabId: docId })));
+/**
+ * Closes tabs one at a time so each unsaved buffer gets its own prompt, and
+ * stops at the first cancellation, leaving the rest open.
+ */
+async function requestCloseTabs(paneId: string, docIds: string[]): Promise<boolean> {
+  for (const id of docIds) {
+    if (!(await requestCloseTab(paneId, id))) return false;
+  }
+  return true;
 }
 
-export function closeTabsToRight(paneId: string, docId: string) {
-  withLayout((l) =>
-    mapPane(l, paneId, (p) => {
-      const at = p.tabs.indexOf(docId);
-      if (at < 0) return p;
-      const tabs = p.tabs.slice(0, at + 1);
-      return { ...p, tabs, activeTabId: tabs.includes(p.activeTabId ?? '') ? p.activeTabId : docId };
-    })
+function paneTabs(paneId: string): string[] {
+  return state.layout.panes.find((p) => p.id === paneId)?.tabs.slice() ?? [];
+}
+
+export function closeOtherTabs(paneId: string, docId: string): Promise<boolean> {
+  return requestCloseTabs(
+    paneId,
+    paneTabs(paneId).filter((t) => t !== docId)
   );
 }
 
-export function closeAllTabs(paneId: string) {
-  withLayout((l) => mapPane(l, paneId, (p) => ({ ...p, tabs: [], activeTabId: null })));
+export function closeTabsToRight(paneId: string, docId: string): Promise<boolean> {
+  const tabs = paneTabs(paneId);
+  const at = tabs.indexOf(docId);
+  return requestCloseTabs(paneId, at < 0 ? [] : tabs.slice(at + 1));
+}
+
+export function closeAllTabs(paneId: string): Promise<boolean> {
+  return requestCloseTabs(paneId, paneTabs(paneId));
 }
 
 /** Cycles the active tab within a pane. */
