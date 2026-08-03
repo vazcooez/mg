@@ -30,7 +30,9 @@ function createWindow() {
     minHeight: 600,
     backgroundColor: '#16171c',
     show: false,
-    title: 'MG',
+    // The renderer retitles the window per document; this covers the moment
+    // before it has loaded.
+    title: `MG ${app.getVersion()}`,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,

@@ -62,9 +62,12 @@ A `.mgtodo` file holds only content — title, the property schema, and the item
 Nothing about how you happen to be looking at it is written there, so the file stays
 stable in git while views, sorts and column widths follow you in the session.
 
-Subfolders work and show up as a tree in the sidebar. Drag a file onto a folder to
-move it there, or onto empty space to move it back to the root; an open tab follows
-its file. Files are written atomically (temp file, then rename), so a crash mid-save
+Subfolders work and show up as a tree in the sidebar. Drag a file or a whole folder
+onto another folder to move it there, or onto empty space below the tree to move it
+back to the root; open tabs follow. The drop target is the folder's entire region,
+not just its name row, so dropping onto anything nested inside a folder means that
+folder. Hovering a closed folder mid-drag opens it, and a folder refuses to be dropped
+inside itself. Files are written atomically (temp file, then rename), so a crash mid-save
 cannot truncate a note.
 
 Images in the vault (`.png`, `.jpg`, `.gif`, `.webp`, `.svg`, `.bmp`, `.avif`) open as

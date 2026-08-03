@@ -2647,16 +2647,31 @@ export async function renameFile(rel: string, nextName: string): Promise<SaveRes
   return { ok: true };
 }
 
-/** Moves a file into another vault folder, keeping its filename. */
+/**
+ * Moves a file or folder into another vault folder, keeping its own name. Open
+ * buffers follow, whether they are the moved file itself or sit beneath a moved
+ * folder.
+ */
 export async function moveFileToFolder(rel: string, folder: string): Promise<SaveResult> {
   if (!window.api) return { ok: false, error: 'Needs the desktop app' };
   const name = rel.split('/').pop() ?? rel;
   const target = `${folder ? folder + '/' : ''}${name}`;
   if (target === rel) return { ok: true };
+  // A folder cannot be moved inside itself, which would orphan the whole subtree.
+  if (folder === rel || folder.startsWith(`${rel}/`)) {
+    return { ok: false, error: 'A folder cannot be moved into itself.' };
+  }
   const res = await window.api.file.rename(rel, target);
   if (!res.ok) return { ok: false, error: res.error };
-  const open = docForPath(state, rel);
-  if (open) replaceDoc(open.id, (d) => ({ ...d, path: target }), { noHistory: true });
+
+  const prefix = `${rel}/`;
+  const docs = state.docs.map((d) => {
+    if (d.path === rel) return { ...d, path: target };
+    // Moving a folder rewrites the path of every buffer underneath it.
+    if (d.path?.startsWith(prefix)) return { ...d, path: `${target}/${d.path.slice(prefix.length)}` };
+    return d;
+  });
+  if (docs.some((d, i) => d !== state.docs[i])) commit({ ...state, docs }, { noHistory: true });
   await refreshListing();
   return { ok: true };
 }

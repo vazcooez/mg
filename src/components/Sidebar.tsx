@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { baseName, dirName, VaultFile, Workspace } from '../types';
 import * as S from '../store';
 import ContextMenu, { MenuState } from './ContextMenu';
@@ -44,9 +44,11 @@ export default function Sidebar({ ws, onFlash }: { ws: Workspace; onFlash: (m: s
   const [renaming, setRenaming] = useState<string | null>(null);
   const [menu, setMenu] = useState<MenuState | null>(null);
   const [prompt, setPrompt] = useState<PromptState | null>(null);
-  /** File being dragged, and the folder currently under the pointer. */
-  const [dragFile, setDragFile] = useState<string | null>(null);
+  /** Entry being dragged, and the folder currently under the pointer. */
+  const [dragRel, setDragRel] = useState<string | null>(null);
   const [dropFolder, setDropFolder] = useState<string | null>(null);
+  /** Pending spring-load: hovering a collapsed folder opens it after a beat. */
+  const springRef = useRef<{ rel: string; timer: number } | null>(null);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
 
   const tree = useMemo(() => buildTree(ws), [ws.files, ws.dirs]);
@@ -141,32 +143,86 @@ export default function Sidebar({ ws, onFlash }: { ws: Workspace; onFlash: (m: s
     ],
   });
 
+  const cancelSpring = () => {
+    if (!springRef.current) return;
+    window.clearTimeout(springRef.current.timer);
+    springRef.current = null;
+  };
+
+  /** Hovering a closed folder mid-drag opens it, so you can drop deeper in. */
+  const springOpen = (rel: string) => {
+    if (springRef.current?.rel === rel) return;
+    cancelSpring();
+    springRef.current = {
+      rel,
+      timer: window.setTimeout(() => {
+        springRef.current = null;
+        setCollapsed((c) => ({ ...c, [rel]: false }));
+      }, 600),
+    };
+  };
+
+  const endDrag = () => {
+    cancelSpring();
+    setDragRel(null);
+    setDropFolder(null);
+  };
+
+  /** Ends a drag and puts the entry into `folder`; shared by every drop zone. */
+  const dropInto = async (folder: string) => {
+    const from = dragRel;
+    cancelSpring();
+    setDragRel(null);
+    setDropFolder(null);
+    if (from === null) return;
+    const res = await S.moveFileToFolder(from, folder);
+    if (!res.ok) onFlash(`Move failed: ${res.error}`);
+  };
+
   const renderNode = (node: TreeNode, depth: number) => {
     const isOpen = !collapsed[node.rel];
     const visibleFiles = node.files.filter((f) => matches(f.rel));
+    const dragging = dragRel !== null;
     return (
-      <div key={node.rel || '__root__'}>
+      // The whole subtree is the drop zone, not just the folder's name row —
+      // dropping onto a folder's contents means the same thing as dropping onto
+      // the folder, and a one-line target is far too easy to miss.
+      <div
+        key={node.rel || '__root__'}
+        className={`side-node${dropFolder === node.rel && node.rel !== '' ? ' drop-into' : ''}`}
+        onDragOver={
+          dragging
+            ? (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setDropFolder(node.rel);
+                if (node.rel !== '' && collapsed[node.rel]) springOpen(node.rel);
+                else cancelSpring();
+              }
+            : undefined
+        }
+        onDrop={
+          dragging
+            ? (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                void dropInto(node.rel);
+              }
+            : undefined
+        }
+      >
         {node.rel !== '' && (
           <div
-            className={`side-folder${dropFolder === node.rel ? ' drop-into' : ''}`}
+            className={`side-folder${dragRel === node.rel ? ' dragging' : ''}`}
             style={{ paddingLeft: 8 + depth * 12 }}
-            onDragOver={(e) => {
-              if (!dragFile) return;
-              e.preventDefault();
+            draggable
+            onDragStart={(e) => {
               e.stopPropagation();
-              setDropFolder(node.rel);
+              setDragRel(node.rel);
+              e.dataTransfer.effectAllowed = 'move';
+              e.dataTransfer.setData('text/plain', node.name);
             }}
-            onDragLeave={() => setDropFolder((f) => (f === node.rel ? null : f))}
-            onDrop={async (e) => {
-              if (!dragFile) return;
-              e.preventDefault();
-              e.stopPropagation();
-              const from = dragFile;
-              setDragFile(null);
-              setDropFolder(null);
-              const res = await S.moveFileToFolder(from, node.rel);
-              if (!res.ok) onFlash(`Move failed: ${res.error}`);
-            }}
+            onDragEnd={endDrag}
             onClick={() => setCollapsed((c) => ({ ...c, [node.rel]: !c[node.rel] }))}
             onContextMenu={(e) => {
               e.preventDefault();
@@ -189,18 +245,16 @@ export default function Sidebar({ ws, onFlash }: { ws: Workspace; onFlash: (m: s
                   key={file.rel}
                   className={`side-doc${activeId === docId ? ' active' : ''}${
                     docId ? ' open' : ''
-                  }`}
+                  }${dragRel === file.rel ? ' dragging' : ''}`}
                   style={{ paddingLeft: 14 + (node.rel === '' ? depth : depth + 1) * 12 }}
                   draggable
                   onDragStart={(e) => {
-                    setDragFile(file.rel);
+                    e.stopPropagation();
+                    setDragRel(file.rel);
                     e.dataTransfer.effectAllowed = 'move';
                     e.dataTransfer.setData('text/plain', file.name);
                   }}
-                  onDragEnd={() => {
-                    setDragFile(null);
-                    setDropFolder(null);
-                  }}
+                  onDragEnd={endDrag}
                   onClick={() => void S.openFile(file.rel)}
                   onContextMenu={(e) => {
                     e.preventDefault();
@@ -318,18 +372,16 @@ export default function Sidebar({ ws, onFlash }: { ws: Workspace; onFlash: (m: s
         className={`sidebar-tree${dropFolder === '' ? ' drop-into' : ''}`}
         title="Double-click empty space for a new note"
         onDragOver={(e) => {
-          if (!dragFile) return;
+          if (dragRel === null) return;
+          // Anything not claimed by a folder's subtree means the vault root.
           e.preventDefault();
           setDropFolder('');
+          cancelSpring();
         }}
-        onDrop={async (e) => {
-          if (!dragFile) return;
+        onDrop={(e) => {
+          if (dragRel === null) return;
           e.preventDefault();
-          const from = dragFile;
-          setDragFile(null);
-          setDropFolder(null);
-          const res = await S.moveFileToFolder(from, '');
-          if (!res.ok) onFlash(`Move failed: ${res.error}`);
+          void dropInto('');
         }}
         onDoubleClick={(e) => {
           // Empty space only: double-clicking a file or folder means something else.

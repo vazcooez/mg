@@ -19,6 +19,9 @@ export interface VaultDir {
 }
 
 declare global {
+  /** Injected by Vite from package.json at build time. */
+  const __APP_VERSION__: string;
+
   interface Window {
     api?: {
       vault: {

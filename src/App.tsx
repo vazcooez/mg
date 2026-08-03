@@ -47,7 +47,8 @@ export default function App() {
 
   useEffect(() => {
     const dirty = activeDoc && S.isDirty(activeDoc) ? '● ' : '';
-    document.title = activeDoc ? `${dirty}${activeDoc.title} — MG` : 'MG';
+    const app = `MG ${__APP_VERSION__}`;
+    document.title = activeDoc ? `${dirty}${activeDoc.title} — ${app}` : app;
   }, [activeDoc, activeDoc && S.isDirty(activeDoc)]);
 
   const flash = useCallback((msg: string) => {

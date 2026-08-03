@@ -2788,11 +2788,25 @@ input[type='color']::-webkit-color-swatch {
   color: var(--text-faint);
 }
 
-.side-folder.drop-into,
-.sidebar-tree.drop-into {
-  background: color-mix(in srgb, var(--accent) 22%, transparent);
+/* A folder's whole region is its drop target, so the highlight covers the
+   header and everything nested under it. */
+.side-node.drop-into {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
   outline: 1px dashed var(--accent);
-  outline-offset: -2px;
+  outline-offset: -1px;
+  border-radius: 4px;
+}
+
+/* Dropping on nothing in particular means the vault root, so the whole tree
+   gets a quieter version of the same treatment. */
+.sidebar-tree.drop-into {
+  outline: 1px dashed color-mix(in srgb, var(--accent) 65%, transparent);
+  outline-offset: -3px;
+}
+
+.side-doc.dragging,
+.side-folder.dragging {
+  opacity: 0.4;
 }
 
 /* callouts */
