@@ -249,16 +249,24 @@ kbd {
 }
 
 .twisty {
-  display: inline-block;
-  width: 12px;
-  text-align: center;
-  color: var(--text-faint);
-  transition: transform 0.12s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
+  color: var(--text-dim);
+  transition: transform 0.12s ease, color 0.12s ease;
   background: none;
   border: 0;
   padding: 0;
   cursor: pointer;
-  font-size: 10px;
+  font-size: 15px;
+  line-height: 1;
+}
+
+.twisty:hover {
+  color: var(--text);
 }
 
 .twisty.open {
@@ -398,6 +406,12 @@ kbd {
 .doc-icon-diagram {
   fill: none;
   stroke: var(--warn);
+  stroke-linecap: round;
+}
+
+.doc-icon-image {
+  fill: none;
+  stroke: var(--text-dim);
   stroke-linecap: round;
 }
 
@@ -2360,6 +2374,50 @@ input[type='color']::-webkit-color-swatch {
   text-decoration: line-through;
 }
 
+/* Tables rendered in place of their source rows in live preview. */
+.cm-table-wrap {
+  overflow-x: auto;
+  margin: 0.5em 0;
+}
+
+.cm-table {
+  border-collapse: collapse;
+  width: auto;
+  min-width: 100%;
+  font-size: 0.95em;
+}
+
+.cm-table th,
+.cm-table td {
+  border: 1px solid var(--line-soft);
+  padding: 4px 10px;
+  text-align: left;
+}
+
+.cm-table th {
+  background: var(--chrome-dark);
+  font-weight: 600;
+}
+
+/* The caret is inside the table, so the pipes are showing — line them up. */
+.cm-table-source {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+  background: color-mix(in srgb, var(--chrome-dark) 45%, transparent);
+}
+
+.cm-image {
+  display: inline-block;
+  max-width: 100%;
+}
+
+.cm-image img {
+  max-width: 100%;
+  max-height: 60vh;
+  border-radius: 5px;
+  vertical-align: top;
+}
+
 .cm-task {
   accent-color: var(--accent);
   margin-right: 6px;
@@ -2622,12 +2680,16 @@ input[type='color']::-webkit-color-swatch {
   vertical-align: -1px;
 }
 
+.md-table-wrap {
+  margin: 0.9em 0;
+  max-width: 100%;
+  overflow-x: auto;
+}
+
 .markdown-body table {
   border-collapse: collapse;
-  margin: 0.9em 0;
-  display: block;
-  overflow-x: auto;
-  max-width: 100%;
+  width: auto;
+  min-width: 100%;
 }
 
 .markdown-body th,
@@ -2635,6 +2697,18 @@ input[type='color']::-webkit-color-swatch {
   border: 1px solid var(--line-soft);
   padding: 5px 10px;
   text-align: left;
+}
+
+/* marked emits column alignment as the legacy attribute, which a plain
+   `text-align` rule would otherwise override. */
+.markdown-body th[align='center'],
+.markdown-body td[align='center'] {
+  text-align: center;
+}
+
+.markdown-body th[align='right'],
+.markdown-body td[align='right'] {
+  text-align: right;
 }
 
 .markdown-body th {
@@ -2649,7 +2723,76 @@ input[type='color']::-webkit-color-swatch {
 
 .markdown-body img {
   max-width: 100%;
+  height: auto;
   border-radius: 5px;
+  display: block;
+  margin: 0.6em 0;
+}
+
+/* ------------------------------------------------------------ image tab */
+
+.doc-title.static {
+  flex: 1;
+  font-size: 14px;
+  font-weight: 600;
+  padding: 3px 6px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.image-canvas {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: auto;
+  padding: 18px;
+  /* Chequerboard so transparency is visible rather than guessed at. */
+  background-image:
+    linear-gradient(45deg, color-mix(in srgb, var(--line-soft) 45%, transparent) 25%, transparent 25%),
+    linear-gradient(-45deg, color-mix(in srgb, var(--line-soft) 45%, transparent) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, color-mix(in srgb, var(--line-soft) 45%, transparent) 75%),
+    linear-gradient(-45deg, transparent 75%, color-mix(in srgb, var(--line-soft) 45%, transparent) 75%);
+  background-size: 18px 18px;
+  background-position: 0 0, 0 9px, 9px -9px, -9px 0;
+}
+
+.image-canvas.zoomed {
+  align-items: flex-start;
+  justify-content: flex-start;
+}
+
+.image-view-img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  image-rendering: auto;
+}
+
+.image-canvas.zoomed .image-view-img {
+  max-height: none;
+}
+
+.image-broken {
+  color: var(--text-faint);
+  text-align: center;
+  line-height: 1.7;
+}
+
+.image-hint {
+  padding: 4px 10px;
+  border-top: 1px solid var(--line-soft);
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+.side-folder.drop-into,
+.sidebar-tree.drop-into {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  outline: 1px dashed var(--accent);
+  outline-offset: -2px;
 }
 
 /* callouts */

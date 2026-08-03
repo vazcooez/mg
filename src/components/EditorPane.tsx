@@ -1,18 +1,27 @@
+import { useEffect, useRef } from 'react';
 import { Pane, Workspace } from '../types';
 import * as S from '../store';
 import TabStrip, { getDraggedTab, setDraggedTab } from './TabStrip';
 import TodoDocView from './TodoDocView';
 import NoteDocView from './NoteDocView';
 import DiagramView from './DiagramView';
+import ImageView from './ImageView';
 import { DiagramDoc } from '../types';
 
 /** Diagrams get the same title header as the other document types. */
 function DiagramDocView({ doc }: { doc: DiagramDoc }) {
+  const titleRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (!S.takeJustCreated(doc.id)) return;
+    titleRef.current?.focus();
+    titleRef.current?.select();
+  }, [doc.id]);
   return (
     <div className="doc-view">
       <header className="doc-header">
         <input
           className="doc-title"
+          ref={titleRef}
           value={doc.title}
           onChange={(e) => S.renameDoc(doc.id, e.target.value)}
           spellCheck={false}
@@ -64,6 +73,8 @@ export default function EditorPane({
           <TodoDocView doc={doc} paneId={pane.id} theme={ws.theme} />
         ) : doc.type === 'diagram' ? (
           <DiagramDocView doc={doc} />
+        ) : doc.type === 'image' ? (
+          <ImageView doc={doc} />
         ) : (
           <NoteDocView ws={ws} doc={doc} paneId={pane.id} />
         )}

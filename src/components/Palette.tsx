@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { DocKindName } from '../types';
 import DocIcon from './DocIcon';
 
 export interface PaletteEntry {
   id: string;
   label: string;
   detail?: string;
-  kind?: 'todo' | 'note' | 'diagram';
+  kind?: DocKindName;
   run: () => void;
 }
 

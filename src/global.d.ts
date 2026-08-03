@@ -35,6 +35,8 @@ declare global {
         trash(rel: string): Promise<Ok>;
         reveal(rel: string): Promise<Ok>;
         unique(rel: string): Promise<Ok & { rel?: string }>;
+        /** Bytes are passed as a plain number array so they survive IPC. */
+        writeBinary(rel: string, bytes: number[]): Promise<Ok & { rel?: string }>;
         mkdir(rel: string): Promise<Ok & { rel?: string }>;
       };
       session: {

@@ -17,6 +17,7 @@ contextBridge.exposeInMainWorld('api', {
     trash: (rel) => ipcRenderer.invoke('file:trash', rel),
     reveal: (rel) => ipcRenderer.invoke('file:reveal', rel),
     unique: (rel) => ipcRenderer.invoke('file:unique', rel),
+    writeBinary: (rel, bytes) => ipcRenderer.invoke('file:write-binary', rel, bytes),
     mkdir: (rel) => ipcRenderer.invoke('dir:create', rel),
   },
   session: {

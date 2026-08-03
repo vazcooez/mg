@@ -62,8 +62,13 @@ A `.mgtodo` file holds only content — title, the property schema, and the item
 Nothing about how you happen to be looking at it is written there, so the file stays
 stable in git while views, sorts and column widths follow you in the session.
 
-Subfolders work and show up as a tree in the sidebar. Files are written atomically
-(temp file, then rename), so a crash mid-save cannot truncate a note.
+Subfolders work and show up as a tree in the sidebar. Drag a file onto a folder to
+move it there, or onto empty space to move it back to the root; an open tab follows
+its file. Files are written atomically (temp file, then rename), so a crash mid-save
+cannot truncate a note.
+
+Images in the vault (`.png`, `.jpg`, `.gif`, `.webp`, `.svg`, `.bmp`, `.avif`) open as
+their own read-only tab with fit-to-window and zoom.
 
 ### Saving is Sublime-style, not autosave
 
@@ -236,6 +241,16 @@ Supported syntax: GFM (tables, task lists, strikethrough), `[[wikilinks]]` and
 `[[wikilinks|aliases]]`, `#tags`, `==highlights==`, and Obsidian callouts including the
 foldable `> [!tip]-` form. Clicking a wikilink opens that note, or creates it if it
 does not exist. Task checkboxes are clickable and write back into the markdown.
+
+Tables render as a real grid in live preview — column alignment included — and revert
+to their pipe source the moment the caret enters them, so they stay editable as text.
+
+### Images in notes
+
+Drop an image file onto a note and it is copied into the note's folder in the vault
+and linked as `![name](name.png)`. Relative links resolve against the note, so
+`![](Media/shot.png)` and `![](../logo.png)` both work, in live preview and in the
+rendered view. Links that point outside the vault are clamped back into it.
 
 ---
 

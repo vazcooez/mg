@@ -8,9 +8,12 @@ const fsp = fs.promises;
 const NOTE_EXT = '.md';
 const TODO_EXT = '.mgtodo';
 const DIAGRAM_EXT = '.mgdiagram';
-const KNOWN_EXT = [NOTE_EXT, TODO_EXT, DIAGRAM_EXT];
+/** Images live in the vault too: they open in a tab and embed in notes. */
+const IMAGE_EXT = ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.bmp', '.avif'];
+const KNOWN_EXT = [NOTE_EXT, TODO_EXT, DIAGRAM_EXT, ...IMAGE_EXT];
 
 const EXT_KIND = { [TODO_EXT]: 'todo', [DIAGRAM_EXT]: 'diagram', [NOTE_EXT]: 'note' };
+for (const e of IMAGE_EXT) EXT_KIND[e] = 'image';
 const CONFIG_DIR = '.mg';
 const SESSION_FILE = 'session.json';
 
@@ -283,6 +286,8 @@ module.exports = {
   NOTE_EXT,
   TODO_EXT,
   DIAGRAM_EXT,
+  IMAGE_EXT,
+  resolveInVault,
   CONFIG_DIR,
   getVault,
   setVault,

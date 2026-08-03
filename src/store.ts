@@ -4,6 +4,9 @@ import { SLOT_MINUTES } from './calendar';
 import {
   baseName,
   clamp,
+  DocKindName,
+  ImageDoc,
+  isImagePath,
   CalendarMode,
   COLOR_PRESETS,
   DEFAULT_AXES,
@@ -284,6 +287,7 @@ export function makeDiagramDoc(title = 'Untitled diagram'): DiagramDoc {
 }
 
 export function serializeDoc(doc: Doc): string {
+  if (doc.type === 'image') return '';
   if (doc.type === 'note') return doc.content;
   if (doc.type === 'diagram') {
     return (
@@ -315,7 +319,7 @@ export function serializeDoc(doc: Doc): string {
 }
 
 /** Rebuilds a document body from file (or buffer) text. */
-export type DocKind = 'todo' | 'note' | 'diagram';
+export type DocKind = DocKindName;
 
 export function parseDocBody(
   type: DocKind,
@@ -324,7 +328,9 @@ export function parseDocBody(
 ):
   | Omit<TodoDoc, keyof DocFile | 'id' | 'createdAt' | 'updatedAt'>
   | Omit<NoteDoc, keyof DocFile | 'id' | 'createdAt' | 'updatedAt'>
-  | Omit<DiagramDoc, keyof DocFile | 'id' | 'createdAt' | 'updatedAt'> {
+  | Omit<DiagramDoc, keyof DocFile | 'id' | 'createdAt' | 'updatedAt'>
+  | Omit<ImageDoc, keyof DocFile | 'id' | 'createdAt' | 'updatedAt'> {
+  if (type === 'image') return { type: 'image', title };
   if (type === 'note') {
     return { type: 'note', title, content: text, view: 'markdown', mdMode: 'live' };
   }
@@ -403,6 +409,7 @@ export function kindForPath(rel: string): DocKind {
   const lower = rel.toLowerCase();
   if (lower.endsWith(TODO_EXT)) return 'todo';
   if (lower.endsWith(DIAGRAM_EXT)) return 'diagram';
+  if (isImagePath(lower)) return 'image';
   return 'note';
 }
 
@@ -960,7 +967,7 @@ function toSession(ws: Workspace): Session {
       type: d.type,
       path: d.path,
       title: d.title,
-      view: d.type === 'diagram' ? 'canvas' : d.view,
+      view: d.type === 'diagram' ? 'canvas' : d.type === 'image' ? 'image' : d.view,
       mdMode: d.type === 'note' ? d.mdMode : undefined,
       columnWidths: d.type === 'todo' ? d.columnWidths : undefined,
       columnDisplay: d.type === 'todo' ? d.columnDisplay : undefined,
@@ -1014,6 +1021,9 @@ function docFromSession(sd: SessionDoc): Doc {
   const body = parseDocBody(sd.type, sd.title, sd.buffer);
   const file: DocFile = { path: sd.path, saved: sd.saved, mtime: sd.mtime };
   const base = { id: sd.id, createdAt: now, updatedAt: now, ...file };
+  if (body.type === 'image') {
+    return { ...base, ...body, title: sd.title } as ImageDoc;
+  }
   if (body.type === 'diagram') {
     return {
       ...base,
@@ -1201,6 +1211,7 @@ interface DocUi {
 }
 
 function pickUi(doc: Doc): DocUi {
+  if (doc.type === 'image') return { zoom: doc.zoom };
   if (doc.type === 'note') return { view: doc.view, mdMode: doc.mdMode };
   if (doc.type === 'diagram')
     return { zoom: doc.zoom, panX: doc.panX, panY: doc.panY, snap: doc.snap };
@@ -1217,6 +1228,7 @@ function pickUi(doc: Doc): DocUi {
 }
 
 function applyUi(doc: Doc, ui: DocUi): Doc {
+  if (doc.type === 'image') return { ...doc, zoom: ui.zoom ?? doc.zoom };
   if (doc.type === 'note') {
     return {
       ...doc,
@@ -1674,8 +1686,21 @@ function untitledName(type: DocKind): string {
   return `${stem} ${Date.now()}`;
 }
 
+/**
+ * Id of the document created most recently, so its view can put the title into
+ * edit mode. Read once and cleared, so re-renders do not re-focus.
+ */
+let justCreated: string | null = null;
+
+export function takeJustCreated(docId: string): boolean {
+  if (justCreated !== docId) return false;
+  justCreated = null;
+  return true;
+}
+
 export function createTodoDoc(title?: string, paneId?: string): string {
   const doc = makeTodoDoc(title || untitledName('todo'));
+  justCreated = doc.id;
   commit({ ...state, docs: [...state.docs, doc] });
   openDoc(doc.id, paneId ?? state.layout.activePaneId);
   return doc.id;
@@ -1683,6 +1708,7 @@ export function createTodoDoc(title?: string, paneId?: string): string {
 
 export function createNoteDoc(title?: string, content?: string, paneId?: string): string {
   const doc = makeNoteDoc(title || untitledName('note'), content ?? '');
+  justCreated = doc.id;
   commit({ ...state, docs: [...state.docs, doc] });
   openDoc(doc.id, paneId ?? state.layout.activePaneId);
   return doc.id;
@@ -2390,12 +2416,17 @@ export function setDiagramPan(docId: string, panX: number, panY: number) {
   updateDiagram(docId, (d) => ({ ...d, panX, panY }), { noHistory: true });
 }
 
+export function setImageZoom(docId: string, zoom: number) {
+  replaceDoc(docId, (d) => (d.type === 'image' ? { ...d, zoom } : d), { noHistory: true });
+}
+
 export function setDiagramSnap(docId: string, snap: boolean) {
   updateDiagram(docId, (d) => ({ ...d, snap }), { noHistory: true });
 }
 
 export function createDiagramDoc(title?: string, paneId?: string): string {
   const doc = makeDiagramDoc(title || untitledName('diagram'));
+  justCreated = doc.id;
   commit({ ...state, docs: [...state.docs, doc] });
   openDoc(doc.id, paneId ?? state.layout.activePaneId);
   return doc.id;
@@ -2452,6 +2483,13 @@ export async function openFile(rel: string, paneId?: string): Promise<string | n
     return already.id;
   }
   if (!window.api) return null;
+  if (isImagePath(rel)) {
+    const stat = await window.api.file.stat(rel);
+    const imgDoc = docFromFile(rel, '', stat.mtime ?? 0);
+    commit({ ...state, docs: [...state.docs, imgDoc] });
+    openDoc(imgDoc.id, paneId ?? state.layout.activePaneId);
+    return imgDoc.id;
+  }
   const res = await window.api.file.read(rel);
   if (!res.ok || res.content == null) {
     await window.api.dialog.message('Could not open file', res.error ?? rel);
@@ -2473,6 +2511,8 @@ export interface SaveResult {
 export async function saveDoc(docId: string): Promise<SaveResult> {
   const doc = state.docs.find((d) => d.id === docId);
   if (!doc) return { ok: false, error: 'No such document' };
+  // An image tab is a view onto the file; there is nothing to write back.
+  if (doc.type === 'image') return { ok: true };
   if (!window.api) return { ok: false, error: 'Saving needs the desktop app' };
   if (!doc.path) return saveDocAsPrompt(docId);
 
@@ -2498,6 +2538,7 @@ export async function saveDoc(docId: string): Promise<SaveResult> {
 export async function saveDocAsPrompt(docId: string): Promise<SaveResult> {
   const doc = state.docs.find((d) => d.id === docId);
   if (!doc || !window.api) return { ok: false, error: 'Saving needs the desktop app' };
+  if (doc.type === 'image') return { ok: false, error: 'Images are opened, not saved' };
   const suggestion = doc.path ?? `${safeFileName(doc.title)}${extForType(doc.type)}`;
   const picked = await window.api.dialog.savePath(suggestion, doc.type);
   if (!picked.ok || !picked.rel) return { ok: false, canceled: true };
@@ -2579,6 +2620,20 @@ export async function renameFile(rel: string, nextName: string): Promise<SaveRes
       noHistory: true,
     });
   }
+  await refreshListing();
+  return { ok: true };
+}
+
+/** Moves a file into another vault folder, keeping its filename. */
+export async function moveFileToFolder(rel: string, folder: string): Promise<SaveResult> {
+  if (!window.api) return { ok: false, error: 'Needs the desktop app' };
+  const name = rel.split('/').pop() ?? rel;
+  const target = `${folder ? folder + '/' : ''}${name}`;
+  if (target === rel) return { ok: true };
+  const res = await window.api.file.rename(rel, target);
+  if (!res.ok) return { ok: false, error: res.error };
+  const open = docForPath(state, rel);
+  if (open) replaceDoc(open.id, (d) => ({ ...d, path: target }), { noHistory: true });
   await refreshListing();
   return { ok: true };
 }

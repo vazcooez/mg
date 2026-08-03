@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { TodoDoc } from '../types';
 import * as S from '../store';
 import EisenhowerView from './EisenhowerView';
@@ -18,6 +18,15 @@ export default function TodoDocView({
 }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [inspector, setInspector] = useState(true);
+  const titleRef = useRef<HTMLInputElement>(null);
+  // A document created just now opens with its name selected, ready to type.
+  useEffect(() => {
+    if (!S.takeJustCreated(doc.id)) return;
+    const el = titleRef.current;
+    el?.focus();
+    el?.select();
+  }, [doc.id]);
+
 
   const selected = doc.items.find((i) => i.id === selectedId) ?? null;
   const trashed = S.trashCount(doc);
@@ -33,6 +42,7 @@ export default function TodoDocView({
       <header className="doc-header">
         <input
           className="doc-title"
+          ref={titleRef}
           value={doc.title}
           onChange={(e) => S.renameDoc(doc.id, e.target.value)}
           spellCheck={false}

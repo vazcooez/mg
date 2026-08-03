@@ -1,4 +1,5 @@
 import { marked } from 'marked';
+import { resolveVaultRef } from './types';
 
 export function escapeHtml(s: string): string {
   return s
@@ -149,12 +150,34 @@ marked.use({
 export function renderMarkdown(src: string): string {
   let html = marked.parse(src, { async: false }) as string;
   html = html.replace(/<script[\s\S]*?<\/script>/gi, '');
+  // Wrap tables so a wide one scrolls inside its own box instead of stretching
+  // the page — `display: block` on the table itself broke column widths.
+  html = html.replace(/<table>/g, '<div class="md-table-wrap"><table>').replace(/<\/table>/g, '</table></div>');
   let n = 0;
   html = html.replace(/<input([^>]*?)type="checkbox"([^>]*?)>/gi, (_m, a: string, b: string) => {
     const attrs = (a + b).replace(/\sdisabled(="[^"]*")?/gi, '');
     return `<input${attrs}type="checkbox" data-task="${n++}">`;
   });
   return html;
+}
+
+/** Renders a single run of text — no paragraphs. Used inside table cells. */
+export function renderInline(src: string): string {
+  return (marked.parseInline(src, { async: false }) as string).replace(
+    /<script[\s\S]*?<\/script>/gi,
+    ''
+  );
+}
+
+/**
+ * Rewrites relative image sources onto the vault protocol so pictures stored
+ * beside a note actually load. `baseRel` is the note's own path.
+ */
+export function resolveImages(html: string, baseRel: string | null): string {
+  return html.replace(/<img([^>]*?)src="([^"]*)"([^>]*)>/gi, (m, pre, src, post) => {
+    if (/^(https?:|data:|blob:|mg-vault:)/i.test(src)) return m;
+    return `<img${pre}src="${resolveVaultRef(baseRel, decodeURI(src))}"${post}>`;
+  });
 }
 
 const TASK_RE = /^(\s*(?:[-*+]|\d+[.)])\s+\[)([ xX])(\])/gm;

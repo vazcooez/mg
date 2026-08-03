@@ -1,12 +1,18 @@
 'use strict';
 
-const { app, BrowserWindow, ipcMain, dialog, Menu, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, Menu, shell, protocol, net } = require('electron');
+const { pathToFileURL } = require('url');
 const path = require('path');
 const fs = require('fs');
 const fsp = fs.promises;
 const V = require('./vault');
 
 const DEV_URL = process.env.VITE_DEV_SERVER_URL;
+
+// Must be declared before the app is ready for the scheme to behave like http.
+protocol.registerSchemesAsPrivileged([
+  { scheme: 'mg-vault', privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true } },
+]);
 
 /** @type {BrowserWindow | null} */
 let win = null;
@@ -286,6 +292,12 @@ handle('file:rename', (from, to) => V.renamePath(from, to));
 handle('file:trash', (rel) => V.trashPath(rel));
 handle('file:reveal', (rel) => V.reveal(rel));
 handle('file:unique', async (rel) => ({ ok: true, rel: await V.uniquePath(rel) }));
+handle('file:write-binary', async (rel, bytes) => {
+  const full = await V.resolveInVault(rel);
+  await fsp.mkdir(path.dirname(full), { recursive: true });
+  await fsp.writeFile(full, Buffer.from(bytes));
+  return { ok: true, rel };
+});
 handle('dir:create', (rel) => V.makeDir(rel));
 
 handle('ui:scale', (factor) => {
@@ -342,6 +354,17 @@ if (!gotLock) {
   });
 
   app.whenReady().then(async () => {
+    // mg-vault://<url-encoded vault-relative path>
+    protocol.handle('mg-vault', async (request) => {
+      try {
+        const url = new URL(request.url);
+        const rel = decodeURIComponent(url.hostname + url.pathname).replace(/^\/+/, '');
+        const full = await V.resolveInVault(rel);
+        return net.fetch(pathToFileURL(full).toString());
+      } catch {
+        return new Response('Not found', { status: 404 });
+      }
+    });
     buildMenu();
     createWindow();
     await startWatching();

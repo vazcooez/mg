@@ -13,7 +13,7 @@ import { markdown, markdownLanguage, insertNewlineContinueMarkup } from '@codemi
 import { indentUnit, syntaxHighlighting, HighlightStyle } from '@codemirror/language';
 import { searchKeymap } from '@codemirror/search';
 import { tags } from '@lezer/highlight';
-import { livePreview } from '../editor/livePreview';
+import { livePreview, notePath } from '../editor/livePreview';
 
 /**
  * A real text editor for notes, built on CodeMirror.
@@ -89,18 +89,22 @@ export default function MarkdownEditor({
   value,
   livePreviewOn,
   theme,
+  path,
   onChange,
   onOpenLink,
 }: {
   value: string;
   livePreviewOn: boolean;
   theme: 'dark' | 'light';
+  /** The note's vault path, used to resolve relative image links. */
+  path: string | null;
   onChange: (next: string) => void;
   onOpenLink: (target: string) => void;
 }) {
   const host = useRef<HTMLDivElement>(null);
   const view = useRef<EditorView | null>(null);
   const preview = useRef(new Compartment());
+  const pathComp = useRef(new Compartment());
   const themeComp = useRef(new Compartment());
   // Kept in refs so the editor is created once and never torn down mid-typing.
   const onChangeRef = useRef(onChange);
@@ -122,6 +126,7 @@ export default function MarkdownEditor({
         indentUnit.of('  '),
         markdown({ base: markdownLanguage, addKeymap: false }),
         syntaxHighlighting(highlight),
+        pathComp.current.of(notePath.of(path)),
         preview.current.of(livePreviewOn ? livePreview : []),
         keymap.of([
           // Enter continues lists and quotes; Tab indents them.
@@ -186,6 +191,11 @@ export default function MarkdownEditor({
       effects: preview.current.reconfigure(livePreviewOn ? livePreview : []),
     });
   }, [livePreviewOn]);
+
+  // Saving a note for the first time gives it a path; images resolve from then on.
+  useEffect(() => {
+    view.current?.dispatch({ effects: pathComp.current.reconfigure(notePath.of(path)) });
+  }, [path]);
 
   // Switching light/dark re-themes the editor in place.
   useEffect(() => {

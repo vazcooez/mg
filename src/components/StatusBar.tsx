@@ -24,6 +24,12 @@ export default function StatusBar({ ws }: { ws: Workspace }) {
           : doc.mdMode === 'edit'
             ? 'Markdown · Source'
             : `Markdown · ${doc.mdMode}`;
+  } else if (doc?.type === 'diagram') {
+    info = `${doc.nodes.length} shapes · ${doc.edges.length} connectors`;
+    viewName = 'Diagram';
+  } else if (doc?.type === 'image') {
+    info = `${Math.round((doc.zoom ?? 1) * 100)}% zoom`;
+    viewName = 'Image';
   }
 
   const where = doc ? (doc.path ?? 'unsaved buffer') : ws.vaultPath;

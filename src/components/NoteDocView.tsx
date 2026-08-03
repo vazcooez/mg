@@ -1,7 +1,7 @@
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { NoteDoc, Workspace } from '../types';
 import * as S from '../store';
-import { extractHeadings, extractLinks, renderMarkdown, toggleTask } from '../markdown';
+import { extractHeadings, extractLinks, renderMarkdown, resolveImages, toggleTask } from '../markdown';
 import MarkdownEditor from './MarkdownEditor';
 
 export default function NoteDocView({
@@ -14,11 +14,20 @@ export default function NoteDocView({
   paneId: string;
 }) {
   const [outline, setOutline] = useState(false);
+  const titleRef = useRef<HTMLInputElement>(null);
+  // A document created just now opens with its name selected, ready to type.
+  useEffect(() => {
+    if (!S.takeJustCreated(doc.id)) return;
+    const el = titleRef.current;
+    el?.focus();
+    el?.select();
+  }, [doc.id]);
+
   const editorRef = useRef<HTMLTextAreaElement>(null);
 
   const html = useMemo(
-    () => (doc.view === 'markdown' ? renderMarkdown(doc.content) : ''),
-    [doc.content, doc.view]
+    () => (doc.view === 'markdown' ? resolveImages(renderMarkdown(doc.content), doc.path) : ''),
+    [doc.content, doc.view, doc.path]
   );
   const headings = useMemo(() => extractHeadings(doc.content), [doc.content]);
   const links = useMemo(() => extractLinks(doc.content), [doc.content]);
@@ -118,10 +127,41 @@ export default function NoteDocView({
         value={doc.content}
         livePreviewOn={doc.mdMode === 'live'}
         theme={ws.theme}
+        path={doc.path}
         onChange={(next) => S.setNoteContent(doc.id, next)}
         onOpenLink={openTarget}
       />
     );
+
+  /** Saves an image into the note's folder and inserts a markdown link. */
+  const attachImage = useCallback(
+    async (file: File) => {
+      if (!window.api) return;
+      const folder = doc.path ? doc.path.slice(0, doc.path.lastIndexOf('/') + 1) : '';
+      const clean = (file.name || 'image.png').replace(/[\\/:*?"<>|]/g, '-');
+      const wanted = `${folder}${clean}`;
+      const unique = (await window.api.file.unique(wanted)).rel ?? wanted;
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      const res = await window.api.file.writeBinary(unique, Array.from(bytes));
+      if (!res.ok) return;
+      const name = unique.split('/').pop() ?? unique;
+      S.setNoteContent(doc.id, `${doc.content}${doc.content.endsWith('\n') || !doc.content ? '' : '\n'}\n![${name}](${encodeURI(name)})\n`);
+      void S.refreshVault();
+    },
+    [doc.id, doc.content, doc.path]
+  );
+
+  const onDropFiles = useCallback(
+    (e: React.DragEvent) => {
+      const images = Array.from(e.dataTransfer?.files ?? []).filter((f) => f.type.startsWith('image/'));
+      if (!images.length) return;
+      e.preventDefault();
+      void (async () => {
+        for (const f of images) await attachImage(f);
+      })();
+    },
+    [attachImage]
+  );
 
   const preview = (
     <div className="note-preview markdown-body" onClick={onPreviewClick}>
@@ -138,6 +178,7 @@ export default function NoteDocView({
       <header className="doc-header">
         <input
           className="doc-title"
+          ref={titleRef}
           value={doc.title}
           onChange={(e) => S.renameDoc(doc.id, e.target.value)}
           spellCheck={false}
@@ -200,7 +241,13 @@ export default function NoteDocView({
       </header>
 
       <div className="doc-body">
-        <div className="doc-main note-main">
+        <div
+          className="doc-main note-main"
+          onDragOver={(e) => {
+            if (Array.from(e.dataTransfer.types).includes('Files')) e.preventDefault();
+          }}
+          onDrop={onDropFiles}
+        >
           {doc.view === 'plain' ? (
             editor
           ) : doc.mdMode === 'live' || doc.mdMode === 'edit' ? (

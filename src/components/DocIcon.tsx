@@ -19,6 +19,17 @@ export default function DocIcon({ kind, className = '' }: { kind: DocKindName; c
     );
   }
 
+  if (kind === 'image') {
+    // A framed picture: a mountain and a sun inside a border.
+    return (
+      <svg className={cls} viewBox="0 0 16 16" aria-hidden="true">
+        <rect x="1.8" y="2.8" width="12.4" height="10.4" rx="1.4" fill="none" strokeWidth="1.5" />
+        <circle cx="5.9" cy="6.4" r="1.15" fill="none" strokeWidth="1.3" />
+        <path d="M2.4 12 L6.2 8.4 L9 10.8 L11.1 9 L13.6 11.4" fill="none" strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round" />
+      </svg>
+    );
+  }
+
   if (kind === 'diagram') {
     return (
       <svg className={cls} viewBox="0 0 16 16" aria-hidden="true">

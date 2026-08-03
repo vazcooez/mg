@@ -44,6 +44,9 @@ export default function Sidebar({ ws, onFlash }: { ws: Workspace; onFlash: (m: s
   const [renaming, setRenaming] = useState<string | null>(null);
   const [menu, setMenu] = useState<MenuState | null>(null);
   const [prompt, setPrompt] = useState<PromptState | null>(null);
+  /** File being dragged, and the folder currently under the pointer. */
+  const [dragFile, setDragFile] = useState<string | null>(null);
+  const [dropFolder, setDropFolder] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
 
   const tree = useMemo(() => buildTree(ws), [ws.files, ws.dirs]);
@@ -145,8 +148,25 @@ export default function Sidebar({ ws, onFlash }: { ws: Workspace; onFlash: (m: s
       <div key={node.rel || '__root__'}>
         {node.rel !== '' && (
           <div
-            className="side-folder"
+            className={`side-folder${dropFolder === node.rel ? ' drop-into' : ''}`}
             style={{ paddingLeft: 8 + depth * 12 }}
+            onDragOver={(e) => {
+              if (!dragFile) return;
+              e.preventDefault();
+              e.stopPropagation();
+              setDropFolder(node.rel);
+            }}
+            onDragLeave={() => setDropFolder((f) => (f === node.rel ? null : f))}
+            onDrop={async (e) => {
+              if (!dragFile) return;
+              e.preventDefault();
+              e.stopPropagation();
+              const from = dragFile;
+              setDragFile(null);
+              setDropFolder(null);
+              const res = await S.moveFileToFolder(from, node.rel);
+              if (!res.ok) onFlash(`Move failed: ${res.error}`);
+            }}
             onClick={() => setCollapsed((c) => ({ ...c, [node.rel]: !c[node.rel] }))}
             onContextMenu={(e) => {
               e.preventDefault();
@@ -171,6 +191,16 @@ export default function Sidebar({ ws, onFlash }: { ws: Workspace; onFlash: (m: s
                     docId ? ' open' : ''
                   }`}
                   style={{ paddingLeft: 14 + (node.rel === '' ? depth : depth + 1) * 12 }}
+                  draggable
+                  onDragStart={(e) => {
+                    setDragFile(file.rel);
+                    e.dataTransfer.effectAllowed = 'move';
+                    e.dataTransfer.setData('text/plain', file.name);
+                  }}
+                  onDragEnd={() => {
+                    setDragFile(null);
+                    setDropFolder(null);
+                  }}
                   onClick={() => void S.openFile(file.rel)}
                   onContextMenu={(e) => {
                     e.preventDefault();
@@ -285,8 +315,22 @@ export default function Sidebar({ ws, onFlash }: { ws: Workspace; onFlash: (m: s
       </div>
 
       <div
-        className="sidebar-tree"
+        className={`sidebar-tree${dropFolder === '' ? ' drop-into' : ''}`}
         title="Double-click empty space for a new note"
+        onDragOver={(e) => {
+          if (!dragFile) return;
+          e.preventDefault();
+          setDropFolder('');
+        }}
+        onDrop={async (e) => {
+          if (!dragFile) return;
+          e.preventDefault();
+          const from = dragFile;
+          setDragFile(null);
+          setDropFolder(null);
+          const res = await S.moveFileToFolder(from, '');
+          if (!res.ok) onFlash(`Move failed: ${res.error}`);
+        }}
         onDoubleClick={(e) => {
           // Empty space only: double-clicking a file or folder means something else.
           if (e.target === e.currentTarget) S.createNoteDoc();

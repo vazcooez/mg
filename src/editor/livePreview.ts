@@ -1,5 +1,5 @@
 import { syntaxTree } from '@codemirror/language';
-import { EditorState, Range, RangeSetBuilder } from '@codemirror/state';
+import { EditorState, Extension, Facet, Range, RangeSetBuilder, StateField } from '@codemirror/state';
 import {
   Decoration,
   DecorationSet,
@@ -8,6 +8,9 @@ import {
   ViewUpdate,
   WidgetType,
 } from '@codemirror/view';
+import { renderInline } from '../markdown';
+import { Align, alignments, isDelimiterRow, tableCells } from './table';
+import { resolveVaultRef } from '../types';
 
 /**
  * Obsidian-style live preview for CodeMirror.
@@ -17,6 +20,14 @@ import {
  * rendered prose while every editing operation (select all, cut, undo, caret
  * motion) keeps working on the real source underneath.
  */
+
+/**
+ * The note's own vault path, so relative image links can be resolved. Notes
+ * that have never been saved have no path and fall back to the vault root.
+ */
+export const notePath = Facet.define<string | null, string | null>({
+  combine: (values) => values[0] ?? null,
+});
 
 /** Lines touched by the cursor or selection keep their markup visible. */
 function activeLines(state: EditorState): Set<number> {
@@ -76,6 +87,123 @@ class LinkWidget extends WidgetType {
   }
 }
 
+class ImageWidget extends WidgetType {
+  constructor(readonly src: string, readonly alt: string) {
+    super();
+  }
+  eq(other: ImageWidget) {
+    return other.src === this.src && other.alt === this.alt;
+  }
+  toDOM() {
+    const wrap = document.createElement('span');
+    wrap.className = 'cm-image';
+    const img = document.createElement('img');
+    img.src = this.src;
+    img.alt = this.alt;
+    img.title = this.alt;
+    wrap.appendChild(img);
+    return wrap;
+  }
+  ignoreEvent() {
+    return true;
+  }
+}
+
+class TableWidget extends WidgetType {
+  constructor(readonly rows: string[], readonly aligns: Align[]) {
+    super();
+  }
+  eq(other: TableWidget) {
+    return (
+      other.rows.length === this.rows.length &&
+      other.rows.every((r, i) => r === this.rows[i]) &&
+      other.aligns.join() === this.aligns.join()
+    );
+  }
+  toDOM() {
+    const wrap = document.createElement('div');
+    wrap.className = 'cm-table-wrap';
+    const table = document.createElement('table');
+    table.className = 'cm-table';
+    const head = document.createElement('thead');
+    const body = document.createElement('tbody');
+    this.rows.forEach((line, index) => {
+      const tr = document.createElement('tr');
+      tableCells(line).forEach((cell, col) => {
+        const td = document.createElement(index === 0 ? 'th' : 'td');
+        td.innerHTML = renderInline(cell);
+        const align = this.aligns[col];
+        if (align) td.style.textAlign = align;
+        tr.appendChild(td);
+      });
+      (index === 0 ? head : body).appendChild(tr);
+    });
+    table.appendChild(head);
+    table.appendChild(body);
+    wrap.appendChild(table);
+    return wrap;
+  }
+  ignoreEvent() {
+    return true;
+  }
+}
+
+/** Every pipe-table in the document: a header row, its delimiter, its body. */
+function tableBlocks(state: EditorState): Array<{ start: number; delim: number; end: number }> {
+  const doc = state.doc;
+  const blocks: Array<{ start: number; delim: number; end: number }> = [];
+  for (let n = 1; n < doc.lines; n++) {
+    if (!doc.line(n).text.includes('|')) continue;
+    if (!isDelimiterRow(doc.line(n + 1).text)) continue;
+    let end = n + 1;
+    while (end < doc.lines) {
+      const next = doc.line(end + 1).text;
+      if (!next.trim() || !next.includes('|')) break;
+      end++;
+    }
+    blocks.push({ start: n, delim: n + 1, end });
+    n = end;
+  }
+  return blocks;
+}
+
+/**
+ * Tables are the one construct that cannot be shown by hiding markup — the grid
+ * only exists once the rows are laid out together, so the whole block is swapped
+ * for a rendered table unless the caret is inside it.
+ *
+ * This lives in a state field rather than the view plugin below because
+ * CodeMirror only accepts block-level decorations from the state.
+ */
+function buildTables(state: EditorState): DecorationSet {
+  const active = activeLines(state);
+  const marks: Range<Decoration>[] = [];
+  for (const block of tableBlocks(state)) {
+    const editing = [...active].some((n) => n >= block.start && n <= block.end);
+    if (editing) {
+      for (let n = block.start; n <= block.end; n++) {
+        marks.push(Decoration.line({ class: 'cm-table-source' }).range(state.doc.line(n).from));
+      }
+      continue;
+    }
+    const rows = [state.doc.line(block.start).text];
+    for (let n = block.delim + 1; n <= block.end; n++) rows.push(state.doc.line(n).text);
+    marks.push(
+      Decoration.replace({
+        widget: new TableWidget(rows, alignments(state.doc.line(block.delim).text)),
+        block: true,
+      }).range(state.doc.line(block.start).from, state.doc.line(block.end).to)
+    );
+  }
+  return Decoration.set(marks, true);
+}
+
+const tableField = StateField.define<DecorationSet>({
+  create: buildTables,
+  update: (deco, tr) => (tr.docChanged || tr.selection ? buildTables(tr.state) : deco),
+  provide: (f) => EditorView.decorations.from(f),
+});
+
 const HEADING = /^(#{1,6})\s/;
 const QUOTE = /^\s*>\s?/;
 const TASK = /^(\s*(?:[-*+]|\d+[.)])\s+\[)([ xX])(\])/;
@@ -106,10 +234,18 @@ function buildDecorations(view: EditorView): DecorationSet {
     },
   });
 
+  const base = view.state.facet(notePath);
+  const doc = view.state.doc;
+
+  const inTable = new Set<number>();
+  for (const b of tableBlocks(view.state)) {
+    for (let n = b.start; n <= b.end; n++) inTable.add(n);
+  }
+
   for (const { from, to } of view.visibleRanges) {
     let pos = from;
     while (pos <= to) {
-      const line = view.state.doc.lineAt(pos);
+      const line = doc.lineAt(pos);
       const text = line.text;
       const isActive = active.has(line.number);
 
@@ -118,6 +254,34 @@ function buildDecorations(view: EditorView): DecorationSet {
         pos = line.to + 1;
         continue;
       }
+
+      // Table rows are owned by the state field above; leave them alone.
+      if (inTable.has(line.number)) {
+        pos = line.to + 1;
+        continue;
+      }
+
+      // Embedded images render inline; the link text stays when editing it.
+      const images: Array<[number, number]> = [];
+      if (!isActive) {
+        for (const m of text.matchAll(/!\[([^\]\n]*)\]\(([^)\n]+)\)/g)) {
+          const start = line.from + m.index!;
+          images.push([start, start + m[0].length]);
+          const raw = m[2].trim().replace(/\s+"[^"]*"$/, '');
+          const src = /^(https?:|data:|blob:|mg-vault:)/i.test(raw)
+            ? raw
+            : resolveVaultRef(base, decodeURI(raw));
+          marks.push(
+            Decoration.replace({ widget: new ImageWidget(src, m[1]) }).range(
+              start,
+              start + m[0].length
+            )
+          );
+        }
+      }
+
+      /** A replaced image owns its whole span; nothing may decorate inside it. */
+      const inImage = (at: number) => images.some(([a, b]) => at >= a && at < b);
 
       // Headings: size the line, hide the leading hashes when inactive.
       const heading = HEADING.exec(text);
@@ -174,6 +338,7 @@ function buildDecorations(view: EditorView): DecorationSet {
         while ((m = rule.re.exec(text))) {
           const start = line.from + m.index;
           const end = start + m[0].length;
+          if (inImage(start)) continue;
           marks.push(Decoration.mark({ class: rule.cls }).range(start, end));
           if (!isActive) {
             marks.push(hidden.range(start, start + rule.marks[0]));
@@ -185,6 +350,7 @@ function buildDecorations(view: EditorView): DecorationSet {
       // Markdown links: show the label, hide the target when inactive.
       for (const m of text.matchAll(/\[([^\]\n]+)\]\(([^)\n]+)\)/g)) {
         const start = line.from + m.index!;
+        if (inImage(start) || inImage(start - 1)) continue;
         marks.push(
           Decoration.mark({ class: 'cm-link', attributes: { 'data-href': m[2] } }).range(
             start + 1,
@@ -208,7 +374,7 @@ function buildDecorations(view: EditorView): DecorationSet {
   return builder.finish();
 }
 
-export const livePreview = ViewPlugin.fromClass(
+const inlinePreview = ViewPlugin.fromClass(
   class {
     decorations: DecorationSet;
     constructor(view: EditorView) {
@@ -222,3 +388,5 @@ export const livePreview = ViewPlugin.fromClass(
   },
   { decorations: (v) => v.decorations }
 );
+
+export const livePreview: Extension = [tableField, inlinePreview];

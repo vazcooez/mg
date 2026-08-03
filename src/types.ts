@@ -304,6 +304,16 @@ export interface DiagramEdge {
   toPort: Port;
 }
 
+/** An image opened as its own tab. Read-only; the file is the content. */
+export interface ImageDoc extends DocFile {
+  id: string;
+  type: 'image';
+  title: string;
+  zoom?: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
 export interface DiagramDoc extends DocFile {
   id: string;
   type: 'diagram';
@@ -320,7 +330,35 @@ export interface DiagramDoc extends DocFile {
 }
 
 /** The three document kinds, as used for file extensions and icons. */
-export type DocKindName = 'todo' | 'note' | 'diagram';
+export type DocKindName = 'todo' | 'note' | 'diagram' | 'image';
+
+export const IMAGE_EXTS = ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.bmp', '.avif'];
+
+export function isImagePath(rel: string): boolean {
+  const lower = rel.toLowerCase();
+  return IMAGE_EXTS.some((e) => lower.endsWith(e));
+}
+
+/** URL the renderer can put in an <img src> for a file inside the vault. */
+export function vaultUrl(rel: string): string {
+  return `mg-vault://${rel.split('/').map(encodeURIComponent).join('/')}`;
+}
+
+/** Resolves a link written inside a note against that note's folder. */
+export function resolveVaultRef(noteRel: string | null, ref: string): string {
+  if (/^[a-z][a-z0-9+.-]*:/i.test(ref) || ref.startsWith('//')) return ref;
+  const clean = ref.replace(/^\.\//, '');
+  if (clean.startsWith('/')) return vaultUrl(clean.slice(1));
+  const dir = noteRel ? noteRel.slice(0, noteRel.lastIndexOf('/') + 1) : '';
+  // Collapse any ../ segments so the reference cannot climb out of the vault.
+  const parts: string[] = [];
+  for (const seg of (dir + clean).split('/')) {
+    if (!seg || seg === '.') continue;
+    if (seg === '..') parts.pop();
+    else parts.push(seg);
+  }
+  return vaultUrl(parts.join('/'));
+}
 
 export const DIAGRAM_EXT = '.mgdiagram';
 
@@ -328,7 +366,7 @@ export const NODE_DEFAULT_W = 150;
 export const NODE_DEFAULT_H = 66;
 export const GRID = 10;
 
-export type Doc = TodoDoc | NoteDoc | DiagramDoc;
+export type Doc = TodoDoc | NoteDoc | DiagramDoc | ImageDoc;
 
 /* ------------------------------------------------- sublime-style layout */
 
@@ -456,6 +494,8 @@ export const TODO_EXT = '.mgtodo';
 
 export function baseName(rel: string): string {
   const name = rel.split('/').pop() ?? rel;
+  // Images keep their extension: "logo.png" and "logo.svg" are different files.
+  if (isImagePath(name)) return name;
   return name.replace(/\.(md|mgtodo|mgdiagram)$/i, '');
 }
 
