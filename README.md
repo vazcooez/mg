@@ -253,6 +253,8 @@ does not exist. Task checkboxes are clickable and write back into the markdown.
 
 Tables render as a real grid in live preview — column alignment included — and revert
 to their pipe source the moment the caret enters them, so they stay editable as text.
+Click a cell and the caret lands in that cell's source; arrow keys step into the table
+rather than over it. Clicking a rendered image reveals its markdown the same way.
 
 ### Images in notes
 

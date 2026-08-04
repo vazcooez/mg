@@ -7,9 +7,10 @@ import {
   ViewPlugin,
   ViewUpdate,
   WidgetType,
+  keymap,
 } from '@codemirror/view';
 import { renderInline } from '../markdown';
-import { Align, alignments, isDelimiterRow, tableCells } from './table';
+import { Align, alignments, cellSpans, isDelimiterRow, tableCells } from './table';
 import { resolveVaultRef } from '../types';
 
 /**
@@ -88,13 +89,13 @@ class LinkWidget extends WidgetType {
 }
 
 class ImageWidget extends WidgetType {
-  constructor(readonly src: string, readonly alt: string) {
+  constructor(readonly src: string, readonly alt: string, readonly pos: number) {
     super();
   }
   eq(other: ImageWidget) {
-    return other.src === this.src && other.alt === this.alt;
+    return other.src === this.src && other.alt === this.alt && other.pos === this.pos;
   }
-  toDOM() {
+  toDOM(view: EditorView) {
     const wrap = document.createElement('span');
     wrap.className = 'cm-image';
     const img = document.createElement('img');
@@ -102,6 +103,13 @@ class ImageWidget extends WidgetType {
     img.alt = this.alt;
     img.title = this.alt;
     wrap.appendChild(img);
+    // Like the table below, a replaced range holds no cursor position of its
+    // own — without this a click on the picture leaves the caret elsewhere.
+    wrap.addEventListener('mousedown', (event) => {
+      event.preventDefault();
+      view.dispatch({ selection: { anchor: this.pos }, scrollIntoView: false });
+      view.focus();
+    });
     return wrap;
   }
   ignoreEvent() {
@@ -109,31 +117,40 @@ class ImageWidget extends WidgetType {
   }
 }
 
+/** One rendered row and where its source line starts in the document. */
+interface TableRow {
+  text: string;
+  from: number;
+}
+
 class TableWidget extends WidgetType {
-  constructor(readonly rows: string[], readonly aligns: Align[]) {
+  constructor(readonly rows: TableRow[], readonly aligns: Align[]) {
     super();
   }
   eq(other: TableWidget) {
     return (
       other.rows.length === this.rows.length &&
-      other.rows.every((r, i) => r === this.rows[i]) &&
+      other.rows.every((r, i) => r.text === this.rows[i].text && r.from === this.rows[i].from) &&
       other.aligns.join() === this.aligns.join()
     );
   }
-  toDOM() {
+  toDOM(view: EditorView) {
     const wrap = document.createElement('div');
     wrap.className = 'cm-table-wrap';
     const table = document.createElement('table');
     table.className = 'cm-table';
     const head = document.createElement('thead');
     const body = document.createElement('tbody');
-    this.rows.forEach((line, index) => {
+    this.rows.forEach((row, index) => {
       const tr = document.createElement('tr');
-      tableCells(line).forEach((cell, col) => {
+      const spans = cellSpans(row.text);
+      tableCells(row.text).forEach((cell, col) => {
         const td = document.createElement(index === 0 ? 'th' : 'td');
         td.innerHTML = renderInline(cell);
         const align = this.aligns[col];
         if (align) td.style.textAlign = align;
+        // Remember where this cell's text lives so a click can land there.
+        td.dataset.pos = String(row.from + (spans[col]?.from ?? 0));
         tr.appendChild(td);
       });
       (index === 0 ? head : body).appendChild(tr);
@@ -141,6 +158,18 @@ class TableWidget extends WidgetType {
     table.appendChild(head);
     table.appendChild(body);
     wrap.appendChild(table);
+
+    // A replaced range has no cursor positions of its own, so clicking the
+    // rendered table would otherwise leave the caret wherever it was and type
+    // into the wrong place. Put it in the source cell instead; the block then
+    // shows its markdown, because the caret line is live again.
+    wrap.addEventListener('mousedown', (event) => {
+      const cell = (event.target as HTMLElement).closest<HTMLElement>('td, th');
+      const pos = Number(cell?.dataset.pos ?? this.rows[0]?.from ?? 0);
+      event.preventDefault();
+      view.dispatch({ selection: { anchor: pos }, scrollIntoView: false });
+      view.focus();
+    });
     return wrap;
   }
   ignoreEvent() {
@@ -186,8 +215,9 @@ function buildTables(state: EditorState): DecorationSet {
       }
       continue;
     }
-    const rows = [state.doc.line(block.start).text];
-    for (let n = block.delim + 1; n <= block.end; n++) rows.push(state.doc.line(n).text);
+    const line = (n: number) => ({ text: state.doc.line(n).text, from: state.doc.line(n).from });
+    const rows = [line(block.start)];
+    for (let n = block.delim + 1; n <= block.end; n++) rows.push(line(n));
     marks.push(
       Decoration.replace({
         widget: new TableWidget(rows, alignments(state.doc.line(block.delim).text)),
@@ -272,7 +302,7 @@ function buildDecorations(view: EditorView): DecorationSet {
             ? raw
             : resolveVaultRef(base, decodeURI(raw));
           marks.push(
-            Decoration.replace({ widget: new ImageWidget(src, m[1]) }).range(
+            Decoration.replace({ widget: new ImageWidget(src, m[1], start) }).range(
               start,
               start + m[0].length
             )
@@ -374,6 +404,41 @@ function buildDecorations(view: EditorView): DecorationSet {
   return builder.finish();
 }
 
+/**
+ * A rendered table is one block as far as the editor is concerned, so plain
+ * vertical motion jumps clean over it — you could never reach its rows with the
+ * keyboard. Stepping onto a table opens it and lands on the nearest row,
+ * keeping the column, which is what moving line by line ought to feel like.
+ */
+function stepIntoTable(dir: 1 | -1) {
+  return (view: EditorView): boolean => {
+    const { state } = view;
+    const range = state.selection.main;
+    if (!range.empty) return false;
+    const line = state.doc.lineAt(range.head);
+    const target = line.number + dir;
+    if (target < 1 || target > state.doc.lines) return false;
+
+    const inside = (n: number, b: { start: number; end: number }) => n >= b.start && n <= b.end;
+    const block = tableBlocks(state).find((b) => inside(target, b));
+    // Already inside that table? Then ordinary line motion is already correct.
+    if (!block || inside(line.number, block)) return false;
+
+    const row = state.doc.line(dir === 1 ? block.start : block.end);
+    const column = range.head - line.from;
+    view.dispatch({
+      selection: { anchor: Math.min(row.from + column, row.to) },
+      scrollIntoView: true,
+    });
+    return true;
+  };
+}
+
+const tableMotion = keymap.of([
+  { key: 'ArrowDown', run: stepIntoTable(1) },
+  { key: 'ArrowUp', run: stepIntoTable(-1) },
+]);
+
 const inlinePreview = ViewPlugin.fromClass(
   class {
     decorations: DecorationSet;
@@ -389,4 +454,4 @@ const inlinePreview = ViewPlugin.fromClass(
   { decorations: (v) => v.decorations }
 );
 
-export const livePreview: Extension = [tableField, inlinePreview];
+export const livePreview: Extension = [tableField, tableMotion, inlinePreview];
