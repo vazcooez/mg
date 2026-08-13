@@ -59,7 +59,22 @@ export interface TodoItem {
 
 /* ------------------------------------------------ custom property schema */
 
-export type PropertyType = 'text' | 'number' | 'date' | 'select';
+export type PropertyType = 'text' | 'number' | 'date' | 'select' | 'boolean';
+
+/**
+ * Booleans live in the same string map as every other property, so an unticked
+ * box and a property that was never touched are the same thing: blank. Anything
+ * a person might reasonably have typed for "yes" counts as true, which matters
+ * when a text column is switched to a checkbox.
+ */
+const TRUTHY = new Set(['true', 'yes', 'y', '1', 'on', '✓', 'x', 'done']);
+
+export function isTrueValue(raw: string | undefined): boolean {
+  return TRUTHY.has((raw ?? '').trim().toLowerCase());
+}
+
+export const BOOLEAN_TRUE = 'true';
+export const BOOLEAN_FALSE = 'false';
 
 /** How a number-typed property renders in the table. */
 export type NumberDisplay = 'digit' | 'bar' | 'scale';
@@ -76,13 +91,14 @@ export interface PropertyDef {
   max?: number;
 }
 
-export const PROPERTY_TYPES: PropertyType[] = ['text', 'number', 'date', 'select'];
+export const PROPERTY_TYPES: PropertyType[] = ['text', 'number', 'date', 'select', 'boolean'];
 
 export const PROPERTY_TYPE_LABEL: Record<PropertyType, string> = {
   text: 'Text',
   number: 'Number',
   date: 'Date',
   select: 'Options',
+  boolean: 'Checkbox',
 };
 
 export const NUMBER_DISPLAYS: NumberDisplay[] = ['digit', 'bar', 'scale'];

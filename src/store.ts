@@ -7,6 +7,7 @@ import {
   DocKindName,
   ImageDoc,
   isImagePath,
+  isTrueValue,
   CalendarMode,
   COLOR_PRESETS,
   DEFAULT_AXES,
@@ -147,6 +148,9 @@ export function cardColor(doc: TodoDoc, item: TodoItem): string {
   const raw = (item.properties[name] ?? '').trim();
   if (!raw) return '#6b7885';
 
+  // Two states, two fixed colours — hashing "true"/"false" would be arbitrary.
+  if (def.type === 'boolean') return isTrueValue(raw) ? COLOR_PRESETS[2] : COLOR_PRESETS[1];
+
   if (def.type === 'number') {
     const values = liveItems(doc).map((i) => numericValue(doc, i, by));
     const range = rangeOf(values, { min: def.min, max: def.max });
@@ -212,7 +216,7 @@ export function colorByOptions(doc: TodoDoc): Array<{ key: string; label: string
     { key: 'status', label: 'Status' },
     { key: 'assignee', label: 'Assignee' },
     ...propertyDefsOf(doc)
-      .filter((d) => d.type === 'select' || d.type === 'number' || d.type === 'text')
+      .filter((d) => d.type !== 'date')
       .map((d) => ({ key: `prop:${d.name}`, label: d.name })),
   ];
 }
@@ -550,6 +554,8 @@ export function propertyValue(def: PropertyDef, raw: string | undefined): number
     const t = Date.parse(text);
     return Number.isFinite(t) ? t : null;
   }
+  // Ticked sorts above unticked; never set stays blank and sinks to the bottom.
+  if (def.type === 'boolean') return isTrueValue(text) ? 1 : 0;
   return text;
 }
 

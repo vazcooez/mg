@@ -1,5 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
-import { PropertyDef, TodoDoc, TodoItem } from '../types';
+import {
+  BOOLEAN_FALSE,
+  BOOLEAN_TRUE,
+  isTrueValue,
+  PropertyDef,
+  TodoDoc,
+  TodoItem,
+} from '../types';
 import * as S from '../store';
 
 const ISO = /^\d{4}-\d{2}-\d{2}$/;
@@ -92,6 +99,19 @@ export default function PropertyInput({
   }
 
   if (def.type === 'date') return <DateInput className={className} value={raw} onChange={set} />;
+
+  // A bare input, not a wrapping label: callers already put this inside their
+  // own label, and nesting labels makes the click target ambiguous.
+  if (def.type === 'boolean') {
+    return (
+      <input
+        type="checkbox"
+        className={`${className} prop-check`}
+        checked={isTrueValue(raw)}
+        onChange={(e) => set(e.target.checked ? BOOLEAN_TRUE : BOOLEAN_FALSE)}
+      />
+    );
+  }
 
   if (def.type === 'select') {
     const options = def.options ?? [];

@@ -1,6 +1,6 @@
 {
   "name": "mg",
-  "version": "1.5.3",
+  "version": "1.5.4",
   "description": "MG - Todo & Free Note workspace for Windows",
   "main": "electron/main.js",
   "author": "MG",

@@ -192,8 +192,8 @@ editable column.
 
 ### Property types
 
-Each custom property is declared as one of four types, from the header menu or the
-inspector:
+Each custom property is declared as one of five types, picked when you add the column,
+or changed later from the header menu or the inspector:
 
 | Type | Editor | Sorts by |
 |---|---|---|
@@ -201,10 +201,16 @@ inspector:
 | **Number** | numeric input | numerically |
 | **Date** | date picker | chronologically |
 | **Options** | dropdown of the choices you define | the order you listed them |
+| **Checkbox** | a tick box | ticked first, then unticked |
 
 Switching a text property to **Options** seeds the choice list from the values already
 in use. A value that is no longer a valid option is kept and flagged rather than
 silently dropped.
+
+A **Checkbox** distinguishes three states: ticked, unticked, and never touched. Only
+the first two sort; a cell you have never clicked stays blank and sinks to the bottom
+like every other empty value. Switching a text column to a checkbox reads the values
+already there, so `yes`, `y`, `1`, `on`, `x` and `done` arrive ticked.
 
 **Number properties choose how they render** — *Digits*, *Bar*, or *Color scale*:
 

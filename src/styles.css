@@ -1009,6 +1009,16 @@ kbd {
   border-color: var(--accent);
 }
 
+.col-add select {
+  background: var(--chrome-dark);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 11px;
+  padding: 3px 4px;
+}
+
 /* ======================================================== eisenhower */
 
 .matrix-view {
@@ -2088,6 +2098,34 @@ input[type='color']::-webkit-color-swatch {
 .prop-value,
 .prop-options {
   grid-column: 1 / -1;
+}
+
+/* Checkbox properties are a mark, not a field, so they carry no input chrome. */
+input.prop-check {
+  width: 15px;
+  height: 15px;
+  min-width: 0;
+  margin: 2px 0;
+  padding: 0;
+  background: none;
+  border: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+  justify-self: start;
+}
+
+.prop-value.prop-check {
+  grid-column: 1 / -1;
+}
+
+/* In the table the tick sits centred in its column. */
+.col-check {
+  text-align: center;
+}
+
+input.cell-check.prop-check {
+  display: block;
+  margin: 0 auto;
 }
 
 .prop-display {

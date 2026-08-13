@@ -10,6 +10,7 @@ import {
   NUMBER_DISPLAYS,
   PROPERTY_TYPE_LABEL,
   PROPERTY_TYPES,
+  PropertyType,
   PropertyDef,
   round1,
   STATUS_COLOR,
@@ -49,6 +50,8 @@ export default function TreeTableView({ doc, theme, selectedId, onSelect }: Prop
   const [menu, setMenu] = useState<MenuState | null>(null);
   const [dropTarget, setDropTarget] = useState<string | null>(null);
   const [newColumn, setNewColumn] = useState('');
+  const [newColumnType, setNewColumnType] = useState<PropertyType>('text');
+  const scrollRef = useRef<HTMLDivElement>(null);
   const dragId = useRef<string | null>(null);
   const colRefs = useRef<Record<string, HTMLTableColElement | null>>({});
   const [resizing, setResizing] = useState<string | null>(null);
@@ -406,8 +409,15 @@ export default function TreeTableView({ doc, theme, selectedId, onSelect }: Prop
           className="col-add"
           onSubmit={(e) => {
             e.preventDefault();
-            S.addPropertyColumn(doc.id, newColumn);
+            if (!newColumn.trim()) return;
+            S.addPropertyColumn(doc.id, newColumn, newColumnType);
             setNewColumn('');
+            // A new column is appended past the right edge on a wide table, so
+            // without this the only visible effect of "Add" is the box clearing.
+            requestAnimationFrame(() => {
+              const el = scrollRef.current;
+              if (el) el.scrollLeft = el.scrollWidth;
+            });
           }}
         >
           <input
@@ -416,13 +426,24 @@ export default function TreeTableView({ doc, theme, selectedId, onSelect }: Prop
             onChange={(e) => setNewColumn(e.target.value)}
             spellCheck={false}
           />
+          <select
+            value={newColumnType}
+            title="Type of the new column"
+            onChange={(e) => setNewColumnType(e.target.value as PropertyType)}
+          >
+            {PROPERTY_TYPES.map((t) => (
+              <option key={t} value={t}>
+                {PROPERTY_TYPE_LABEL[t]}
+              </option>
+            ))}
+          </select>
           <button type="submit" className="ghost-btn">
             Add
           </button>
         </form>
       </div>
 
-      <div className="table-scroll">
+      <div className="table-scroll" ref={scrollRef}>
         <table className="prop-table" style={{ width: tableWidth }}>
           <colgroup>
             {columns.map((col, i) => (
@@ -1023,6 +1044,15 @@ function PropertyCell({
         theme={theme}
         onText={set}
       />
+    );
+  }
+
+  // A checkbox is a mark, not a value to read left-to-right, so it sits centred.
+  if (def.type === 'boolean') {
+    return (
+      <td className="col-prop col-check">
+        <PropertyInput doc={doc} item={item} def={def} className="cell-check" />
+      </td>
     );
   }
 
