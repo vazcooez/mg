@@ -2456,10 +2456,18 @@ input.cell-check.prop-check {
   vertical-align: top;
 }
 
+/* A checkbox has a fixed intrinsic size that ignores font-size, so task marks
+   would stay 13px however large the editor text got. Sizing in `em` ties them
+   to the surrounding line — but only once `font-size: inherit` is set, because
+   the UA stylesheet gives form controls their own fixed 13.33px font, and that
+   is what `em` would otherwise be measured against. */
 .cm-task {
+  font-size: inherit;
+  width: 1em;
+  height: 1em;
   accent-color: var(--accent);
-  margin-right: 6px;
-  vertical-align: -1px;
+  margin-right: 0.42em;
+  vertical-align: -0.12em;
   cursor: pointer;
 }
 
@@ -2712,10 +2720,14 @@ input.cell-check.prop-check {
 }
 
 .markdown-body input[type='checkbox'] {
-  margin-right: 7px;
+  /* See `.cm-task`: `em` needs the inherited font to mean anything here. */
+  font-size: inherit;
+  width: 1em;
+  height: 1em;
+  margin-right: 0.5em;
   accent-color: var(--accent);
   cursor: pointer;
-  vertical-align: -1px;
+  vertical-align: -0.12em;
 }
 
 .md-table-wrap {
