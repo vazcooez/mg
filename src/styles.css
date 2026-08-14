@@ -3088,6 +3088,17 @@ summary.callout-title {
   color: var(--text-faint);
 }
 
+.setting-warn {
+  margin: 6px 0 0;
+  padding: 6px 9px;
+  border-left: 2px solid var(--warn);
+  border-radius: 0 var(--radius) var(--radius) 0;
+  background: color-mix(in srgb, var(--warn) 12%, transparent);
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--text-dim);
+}
+
 .setting-hint code,
 .vault-path {
   font-family: var(--font-mono);
@@ -3125,6 +3136,12 @@ summary.callout-title {
   font: inherit;
   padding: 7px 10px;
   cursor: pointer;
+}
+
+/* Briefly disabled while a main-process setting is still being read. */
+.font-option:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 
 .font-option:hover {

@@ -113,6 +113,24 @@ Deleting from the sidebar goes to the recycle bin, never a hard unlink.
 
 ## Window management
 
+### Closing the window
+
+**Settings → Window → Closing the window** chooses what the ✕ does:
+
+- **Quits MG** (the default) — the usual hot exit: unsaved buffers are written to the
+  session and restored next launch.
+- **Keeps MG in the tray** — the window hides and MG carries on running with every tab
+  and unsaved buffer exactly as it was. Click the tray icon to bring it back, or use
+  its menu to reopen or quit. The session is written on the way out anyway, so an
+  unexpected shutdown costs nothing.
+
+The tray icon only exists while that option is selected, so it does not sit in the
+notification area for nothing. The same choice is available from the tray menu itself.
+It is stored with the app rather than the vault, so it holds whichever vault you open.
+
+Launching MG again while it sits in the tray reopens the existing window instead of
+starting a second copy — useful if the notification area is hidden.
+
 Sublime's model: editor **groups**, each with its own tab strip.
 
 | | |

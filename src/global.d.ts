@@ -22,6 +22,12 @@ declare global {
   /** Injected by Vite from package.json at build time. */
   const __APP_VERSION__: string;
 
+  /**
+   * What closing the window does. Stored with the app, not the vault: it is a
+   * property of this installation, and the main process needs it at close time.
+   */
+  type CloseAction = 'tray' | 'quit';
+
   interface Window {
     api?: {
       vault: {
@@ -46,6 +52,12 @@ declare global {
         read(): Promise<Ok & { data: unknown | null }>;
         write(data: unknown): Promise<Ok>;
       };
+      app: {
+        closeAction(): Promise<Ok & { action: CloseAction; trayReady: boolean }>;
+        setCloseAction(
+          action: CloseAction
+        ): Promise<Ok & { action: CloseAction; trayReady: boolean }>;
+      };
       dialog: {
         savePath(name: string, type: 'todo' | 'note' | 'diagram'): Promise<Ok & { rel?: string }>;
         confirmClose(
@@ -58,6 +70,7 @@ declare global {
       exportFile(defaultName: string, content: string): Promise<Ok & { path?: string }>;
       onMenu(handler: (action: string) => void): () => void;
       onVaultChanged(handler: (name: string) => void): () => void;
+      onCloseAction(handler: (action: CloseAction) => void): () => void;
     };
   }
 }

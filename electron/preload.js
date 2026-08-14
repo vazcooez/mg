@@ -24,6 +24,10 @@ contextBridge.exposeInMainWorld('api', {
     read: () => ipcRenderer.invoke('session:read'),
     write: (data) => ipcRenderer.invoke('session:write', data),
   },
+  app: {
+    closeAction: () => ipcRenderer.invoke('app:close-action'),
+    setCloseAction: (action) => ipcRenderer.invoke('app:set-close-action', action),
+  },
   dialog: {
     savePath: (name, type) => ipcRenderer.invoke('dialog:save-path', name, type),
     confirmClose: (title, neverSaved) =>
@@ -41,5 +45,11 @@ contextBridge.exposeInMainWorld('api', {
     const listener = (_e, name) => handler(name);
     ipcRenderer.on('vault-changed', listener);
     return () => ipcRenderer.removeListener('vault-changed', listener);
+  },
+  // The tray menu can change the close behaviour too, so Settings follows it.
+  onCloseAction: (handler) => {
+    const listener = (_e, action) => handler(action);
+    ipcRenderer.on('close-action', listener);
+    return () => ipcRenderer.removeListener('close-action', listener);
   },
 });

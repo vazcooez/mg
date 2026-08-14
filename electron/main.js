@@ -1,6 +1,17 @@
 'use strict';
 
-const { app, BrowserWindow, ipcMain, dialog, Menu, shell, protocol, net } = require('electron');
+const {
+  app,
+  BrowserWindow,
+  ipcMain,
+  dialog,
+  Menu,
+  Tray,
+  nativeImage,
+  shell,
+  protocol,
+  net,
+} = require('electron');
 const { pathToFileURL } = require('url');
 const path = require('path');
 const fs = require('fs');
@@ -21,6 +32,125 @@ let sessionFlushed = false;
 let quitting = false;
 /** @type {fs.FSWatcher | null} */
 let watcher = null;
+/** @type {Tray | null} */
+let tray = null;
+/**
+ * What closing the window does: 'tray' keeps MG running in the notification
+ * area, 'quit' exits. Read from prefs before the window exists, because the
+ * close handler needs it synchronously.
+ */
+let closeAction = 'quit';
+/** The "MG is still running" balloon is shown once, not every time. */
+let trayHintShown = false;
+
+const TRAY_ACTIONS = ['tray', 'quit'];
+
+/**
+ * The tray image. `new Tray` accepts an empty image without complaint and then
+ * shows nothing at all, so the icon is loaded explicitly and checked.
+ */
+function trayImage() {
+  for (const file of ['icon.ico', 'icon.png']) {
+    const img = nativeImage.createFromPath(path.join(__dirname, '..', 'build', file));
+    if (!img.isEmpty()) return img;
+  }
+  return null;
+}
+
+/** Brings the window back from the tray, from wherever it was. */
+function showWindow() {
+  if (!win || win.isDestroyed()) {
+    createWindow();
+    return;
+  }
+  if (win.isMinimized()) win.restore();
+  win.show();
+  win.focus();
+}
+
+function trayMenu() {
+  return Menu.buildFromTemplate([
+    { label: `MG ${app.getVersion()}`, enabled: false },
+    { type: 'separator' },
+    { label: 'Open MG', click: showWindow },
+    {
+      label: 'Closing the window',
+      submenu: TRAY_ACTIONS.map((action) => ({
+        label: action === 'tray' ? 'Keeps MG in the tray' : 'Quits MG',
+        type: 'radio',
+        checked: closeAction === action,
+        click: () => void setCloseAction(action),
+      })),
+    },
+    { type: 'separator' },
+    {
+      label: 'Quit MG',
+      click: () => {
+        quitting = true;
+        app.quit();
+      },
+    },
+  ]);
+}
+
+function createTray() {
+  if (tray) return;
+  const image = trayImage();
+  if (!image) return;
+  try {
+    tray = new Tray(image);
+  } catch {
+    // No tray available: the app still runs, the window just cannot be
+    // restored from the notification area. Settings warns when this happens.
+    return;
+  }
+  tray.setToolTip('MG');
+  tray.setContextMenu(trayMenu());
+  // Windows convention: a plain click reopens, the menu is on right-click.
+  tray.on('click', showWindow);
+  tray.on('double-click', showWindow);
+}
+
+function destroyTray() {
+  if (!tray) return;
+  tray.destroy();
+  tray = null;
+}
+
+/**
+ * The tray only exists while it can be used: with 'quit' selected there is
+ * nothing for it to do, so it does not clutter the notification area.
+ */
+function syncTray() {
+  if (closeAction === 'tray') createTray();
+  else destroyTray();
+  if (tray) tray.setContextMenu(trayMenu());
+}
+
+async function setCloseAction(next) {
+  closeAction = TRAY_ACTIONS.includes(next) ? next : 'quit';
+  await V.setPref('closeAction', closeAction);
+  syncTray();
+  send('close-action', closeAction);
+  return closeAction;
+}
+
+/** Hides to the tray, telling the renderer to persist first. */
+function hideToTray() {
+  // The window survives, but a machine that dies while MG sits in the tray
+  // should not cost anything the renderer has not written down.
+  send('menu', 'flush-session');
+  if (win && !win.isDestroyed()) win.hide();
+  if (tray && !trayHintShown) {
+    trayHintShown = true;
+    void V.setPref('trayHintShown', true);
+    tray.displayBalloon({
+      title: 'MG is still running',
+      content: 'Click the tray icon to reopen it. Quit from the tray menu, or change this in Settings.',
+      iconType: 'info',
+    });
+  }
+}
 
 function createWindow() {
   win = new BrowserWindow({
@@ -55,9 +185,16 @@ function createWindow() {
     return { action: 'deny' };
   });
 
-  // Hot exit: give the renderer a chance to persist open tabs and dirty
-  // buffers before the window actually goes away.
   win.on('close', (e) => {
+    // Closing to the tray is not a close at all: the window hides and every
+    // buffer stays exactly as it was, so there is nothing to tear down.
+    if (closeAction === 'tray' && !quitting) {
+      e.preventDefault();
+      hideToTray();
+      return;
+    }
+    // Hot exit: give the renderer a chance to persist open tabs and dirty
+    // buffers before the window actually goes away.
     if (sessionFlushed) return;
     e.preventDefault();
     quitting = true;
@@ -308,6 +445,15 @@ handle('ui:scale', (factor) => {
   return { ok: true };
 });
 
+// `trayReady` matters to the UI: if the icon could not be created there is
+// nothing to click to get the window back, and Settings says so.
+handle('app:close-action', () => ({ ok: true, action: closeAction, trayReady: Boolean(tray) }));
+handle('app:set-close-action', async (next) => ({
+  ok: true,
+  action: await setCloseAction(next),
+  trayReady: Boolean(tray),
+}));
+
 handle('session:read', () => V.readSession());
 handle('session:write', async (data) => {
   const res = await V.writeSession(data);
@@ -348,12 +494,9 @@ const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) {
   app.quit();
 } else {
-  app.on('second-instance', () => {
-    if (win) {
-      if (win.isMinimized()) win.restore();
-      win.focus();
-    }
-  });
+  // Launching MG again while it sits in the tray reopens the window rather
+  // than starting a second copy fighting over the same vault.
+  app.on('second-instance', showWindow);
 
   app.whenReady().then(async () => {
     // mg-vault://<url-encoded vault-relative path>
@@ -367,12 +510,26 @@ if (!gotLock) {
         return new Response('Not found', { status: 404 });
       }
     });
+    closeAction = (await V.getPref('closeAction', 'quit')) === 'tray' ? 'tray' : 'quit';
+    trayHintShown = Boolean(await V.getPref('trayHintShown', false));
     buildMenu();
     createWindow();
+    syncTray();
     await startWatching();
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow();
+      else showWindow();
     });
+  });
+
+  // Quit from anywhere — the tray menu, the File menu, Alt+F4 with 'quit'
+  // selected — has to get past the close-to-tray guard.
+  app.on('before-quit', () => {
+    quitting = true;
+  });
+
+  app.on('will-quit', () => {
+    destroyTray();
   });
 
   app.on('window-all-closed', () => {

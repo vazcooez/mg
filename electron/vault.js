@@ -41,6 +41,18 @@ async function writePrefs(prefs) {
   await fsp.writeFile(prefsFile(), JSON.stringify(prefs, null, 2), 'utf8');
 }
 
+/** Reads one app-level preference, falling back to `fallback`. */
+async function getPref(key, fallback) {
+  const prefs = await readPrefs();
+  return prefs[key] === undefined ? fallback : prefs[key];
+}
+
+async function setPref(key, value) {
+  const prefs = await readPrefs();
+  await writePrefs({ ...prefs, [key]: value });
+  return value;
+}
+
 async function getVault() {
   if (vaultPath) return vaultPath;
   const prefs = await readPrefs();
@@ -297,6 +309,8 @@ module.exports = {
   IMAGE_EXT,
   resolveInVault,
   CONFIG_DIR,
+  getPref,
+  setPref,
   getVault,
   setVault,
   listVault,

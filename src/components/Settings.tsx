@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import {
   DEFAULT_SETTINGS,
   EDITOR_FONT_LABEL,
@@ -12,17 +12,34 @@ import * as S from '../store';
 const EDITOR_FONTS: EditorFont[] = ['mono', 'sans', 'serif'];
 
 /**
- * Preferences. Everything here is app-wide window state: it lives in the
- * session, applies immediately, and never touches a document.
+ * Preferences. Everything here applies immediately and never touches a
+ * document. Most of it is window state kept in the vault's session; the close
+ * behaviour is the exception, belonging to the installation instead.
  */
 export default function Settings({ ws, onClose }: { ws: Workspace; onClose: () => void }) {
   const s = ws.settings;
+  /**
+   * Unlike everything else here, the close behaviour belongs to the app rather
+   * than the vault — the main process owns it, so it is read over IPC and not
+   * from the session.
+   */
+  const [closeAction, setCloseAction] = useState<CloseAction | null>(null);
+  const [trayReady, setTrayReady] = useState(true);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
+
+  useEffect(() => {
+    void window.api?.app.closeAction().then((r) => {
+      setCloseAction(r.action);
+      setTrayReady(r.trayReady);
+    });
+    // The tray menu offers the same choice, so keep the two in step.
+    return window.api?.onCloseAction(setCloseAction);
+  }, []);
 
   const num = (
     key: keyof Omit<SettingsShape, 'editorFont'>,
@@ -132,6 +149,49 @@ export default function Settings({ ws, onClose }: { ws: Workspace; onClose: () =
                 ))}
               </div>
               <p className="setting-hint">Also on Ctrl+K Ctrl+T.</p>
+            </div>
+          </section>
+
+          <section>
+            <h3>Window</h3>
+            <div className="setting">
+              <div className="setting-head">
+                <label>Closing the window</label>
+              </div>
+              <div className="font-choice">
+                {(
+                  [
+                    ['tray', 'Keeps MG in the tray'],
+                    ['quit', 'Quits MG'],
+                  ] as const
+                ).map(([action, label]) => (
+                  <button
+                    key={action}
+                    type="button"
+                    className={`font-option${closeAction === action ? ' on' : ''}`}
+                    disabled={closeAction === null}
+                    onClick={() => {
+                      setCloseAction(action);
+                      void window.api?.app
+                        .setCloseAction(action)
+                        .then((r) => setTrayReady(r.trayReady));
+                    }}
+                  >
+                    <span className="font-name">{label}</span>
+                  </button>
+                ))}
+              </div>
+              <p className="setting-hint">
+                In the tray, MG keeps running with every tab and unsaved buffer intact — click the
+                tray icon to bring it back, or quit from its menu. This setting belongs to the app,
+                not the vault, so it is the same whichever vault you open.
+              </p>
+              {closeAction === 'tray' && !trayReady && (
+                <p className="setting-warn">
+                  The tray icon could not be created, so there is nothing to click. Closing the
+                  window will still hide it — launch MG again to bring it back.
+                </p>
+              )}
             </div>
           </section>
 
