@@ -238,6 +238,75 @@ const HEADING = /^(#{1,6})\s/;
 const QUOTE = /^\s*>\s?/;
 const TASK = /^(\s*(?:[-*+]|\d+[.)])\s+\[)([ xX])(\])/;
 const HR = /^\s*(-{3,}|\*{3,}|_{3,})\s*$/;
+/** Indent, marker, and the space after it — the three parts of a list prefix. */
+const LIST = /^([ \t]*)([-*+]|\d+[.)])([ \t]+)/;
+
+/** One glyph per nesting level, cycling — the HTML list convention. */
+const BULLETS = ['•', '◦', '▪'];
+
+/** Editor indent unit, matching `indentUnit.of('  ')` in the editor setup. */
+const INDENT_WIDTH = 2;
+
+/** How many levels deep a line's leading whitespace puts it. */
+function indentDepth(indent: string): number {
+  let columns = 0;
+  for (const ch of indent) columns += ch === '\t' ? INDENT_WIDTH : 1;
+  return Math.floor(columns / INDENT_WIDTH);
+}
+
+/**
+ * The list marker, drawn rather than written. Replacing it means the caret
+ * cannot sit inside it and it cannot be selected as text: it reads as a bullet
+ * the way it would in a rendered document, not as the characters behind one.
+ */
+class BulletWidget extends WidgetType {
+  /** `pos` is where the item's text begins, just past the marker. */
+  constructor(readonly label: string, readonly ordered: boolean, readonly pos: number) {
+    super();
+  }
+  eq(other: BulletWidget) {
+    return other.label === this.label && other.ordered === this.ordered && other.pos === this.pos;
+  }
+  toDOM(view: EditorView) {
+    const span = document.createElement('span');
+    span.className = `cm-bullet${this.ordered ? ' cm-bullet-num' : ''}`;
+    span.textContent = this.label;
+    // A replaced range holds no cursor position, so without this a click on
+    // the bullet would leave the caret wherever it happened to be.
+    span.addEventListener('mousedown', (event) => {
+      event.preventDefault();
+      view.dispatch({ selection: { anchor: this.pos }, scrollIntoView: false });
+      view.focus();
+    });
+    return span;
+  }
+  ignoreEvent() {
+    return true;
+  }
+}
+
+/**
+ * CodeMirror knows the real width of a character in the current font; the
+ * indent guides are drawn from it, so they line up with the text at any font
+ * size or typeface.
+ */
+const charWidth = ViewPlugin.fromClass(
+  class {
+    width = 0;
+    constructor(view: EditorView) {
+      this.sync(view);
+    }
+    update(update: ViewUpdate) {
+      if (update.geometryChanged) this.sync(update.view);
+    }
+    sync(view: EditorView) {
+      const next = view.defaultCharacterWidth;
+      if (!next || Math.abs(next - this.width) < 0.01) return;
+      this.width = next;
+      view.dom.style.setProperty('--cm-char-width', `${next}px`);
+    }
+  }
+);
 
 /** Inline spans handled by regex — cheap and independent of the syntax tree. */
 const INLINE: Array<{ re: RegExp; cls: string; marks: [number, number] }> = [
@@ -248,9 +317,15 @@ const INLINE: Array<{ re: RegExp; cls: string; marks: [number, number] }> = [
   { re: /(`)([^`\n]+)\1/g, cls: 'cm-inline-code', marks: [1, 1] },
 ];
 
-function buildDecorations(view: EditorView): DecorationSet {
+function buildDecorations(view: EditorView): { decorations: DecorationSet; markers: DecorationSet } {
   const active = activeLines(view.state);
   const marks: Range<Decoration>[] = [];
+  /**
+   * List markers, kept apart so they can be declared atomic. Cursor motion
+   * then steps over a bullet in one go instead of disappearing inside the
+   * characters it stands for.
+   */
+  const markerRanges: Range<Decoration>[] = [];
   const tree = syntaxTree(view.state);
 
   // Fenced code gets a block treatment and no inline processing.
@@ -344,6 +419,39 @@ function buildDecorations(view: EditorView): DecorationSet {
         }
       }
 
+      // List markers are always drawn, caret or not: a bullet is what the line
+      // means, and the character behind it is never worth putting a cursor in.
+      const list = !HR.test(text) && LIST.exec(text);
+      if (list) {
+        const [, indent, marker, gap] = list;
+        const depth = indentDepth(indent);
+        const from = line.from + indent.length;
+        const to = from + marker.length + gap.length;
+        const ordered = /\d/.test(marker);
+        if (task) {
+          // The checkbox is this line's marker; the dash before it is noise.
+          marks.push(hidden.range(from, to));
+        } else {
+          marks.push(
+            Decoration.replace({
+              widget: new BulletWidget(
+                ordered ? marker : BULLETS[depth % BULLETS.length],
+                ordered,
+                to
+              ),
+            }).range(from, to)
+          );
+        }
+        markerRanges.push(hidden.range(from, to));
+        // One guide per ancestor level, so nested items read as one group.
+        marks.push(
+          Decoration.line({
+            class: 'cm-list-line',
+            attributes: { style: `--list-depth:${depth}` },
+          }).range(line.from)
+        );
+      }
+
       // Wikilinks and tags render as chips unless the cursor is on the line.
       for (const m of text.matchAll(/!?\[\[([^\]\n|]+)(?:\|([^\]\n]+))?\]\]/g)) {
         const start = line.from + m.index!;
@@ -401,7 +509,12 @@ function buildDecorations(view: EditorView): DecorationSet {
   marks.sort((a, b) => a.from - b.from || a.value.startSide - b.value.startSide);
   const builder = new RangeSetBuilder<Decoration>();
   for (const m of marks) builder.add(m.from, m.to, m.value);
-  return builder.finish();
+
+  markerRanges.sort((a, b) => a.from - b.from);
+  const markerBuilder = new RangeSetBuilder<Decoration>();
+  for (const m of markerRanges) markerBuilder.add(m.from, m.to, m.value);
+
+  return { decorations: builder.finish(), markers: markerBuilder.finish() };
 }
 
 /**
@@ -442,16 +555,23 @@ const tableMotion = keymap.of([
 const inlinePreview = ViewPlugin.fromClass(
   class {
     decorations: DecorationSet;
+    markers: DecorationSet;
     constructor(view: EditorView) {
-      this.decorations = buildDecorations(view);
+      ({ decorations: this.decorations, markers: this.markers } = buildDecorations(view));
     }
     update(update: ViewUpdate) {
       if (update.docChanged || update.viewportChanged || update.selectionSet) {
-        this.decorations = buildDecorations(update.view);
+        ({ decorations: this.decorations, markers: this.markers } = buildDecorations(update.view));
       }
     }
   },
-  { decorations: (v) => v.decorations }
+  {
+    decorations: (v) => v.decorations,
+    // Only the list markers are atomic; hiding emphasis marks must stay
+    // editable, so the rest of the decorations are deliberately excluded.
+    provide: (plugin) =>
+      EditorView.atomicRanges.of((view) => view.plugin(plugin)?.markers ?? Decoration.none),
+  }
 );
 
-export const livePreview: Extension = [tableField, tableMotion, inlinePreview];
+export const livePreview: Extension = [tableField, tableMotion, charWidth, inlinePreview];

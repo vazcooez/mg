@@ -2471,6 +2471,41 @@ input.cell-check.prop-check {
   cursor: pointer;
 }
 
+/* The list marker is drawn, not typed: it takes the width of the source it
+   replaces so the text after it stays exactly where it was. */
+.cm-bullet {
+  display: inline-block;
+  width: 2ch;
+  color: var(--text-faint);
+  user-select: none;
+  cursor: default;
+}
+
+.cm-bullet-num {
+  width: auto;
+  min-width: 2ch;
+  padding-right: 0.4ch;
+  color: var(--text-dim);
+}
+
+/* One vertical rule per ancestor level, so a nested run reads as one group.
+   `--cm-char-width` is measured by the editor, so the rules land on the indent
+   columns whatever the font. */
+.cm-list-line {
+  --guide-step: calc(var(--cm-char-width, 0.6em) * 2);
+  background-image: repeating-linear-gradient(
+    to right,
+    color-mix(in srgb, var(--text-faint) 70%, transparent) 0 1px,
+    transparent 1px var(--guide-step)
+  );
+  background-size: calc(var(--list-depth, 0) * var(--guide-step)) 100%;
+  /* Nudged so each rule falls under the middle of its parent's bullet rather
+     than at the very left of the indent column. */
+  background-position: calc(var(--cm-char-width, 0.6em) * 0.4) 0;
+  background-origin: content-box;
+  background-repeat: no-repeat;
+}
+
 .cm-wikilink {
   color: color-mix(in srgb, var(--accent) 80%, var(--text));
   border-bottom: 1px dashed color-mix(in srgb, var(--accent) 60%, transparent);

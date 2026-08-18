@@ -275,6 +275,12 @@ Supported syntax: GFM (tables, task lists, strikethrough), `[[wikilinks]]` and
 foldable `> [!tip]-` form. Clicking a wikilink opens that note, or creates it if it
 does not exist. Task checkboxes are clickable and write back into the markdown.
 
+List markers are drawn rather than typed: `-` shows as a bullet, `•` at the top level
+and `◦` then `▪` as you nest, and ordered lists keep their numbers. The caret steps
+over a marker in one press instead of disappearing inside it, and the glyph cannot be
+selected as text — but a copy still yields the real markdown. Nested items carry a
+vertical rule per ancestor level, so a run of children reads as one group.
+
 Tables render as a real grid in live preview — column alignment included — and revert
 to their pipe source the moment the caret enters them, so they stay editable as text.
 Click a cell and the caret lands in that cell's source; arrow keys step into the table
