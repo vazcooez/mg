@@ -1,0 +1,77 @@
+# Builds the Windows installers on a real Windows runner and drafts the release.
+#
+# MG only ever ships as Windows binaries, and electron-builder has to run the
+# Windows `rcedit` to stamp the icon and version onto electron.exe — which on
+# Linux means Wine, and on macOS is not supported at all. Doing it on
+# `windows-latest` sidesteps the lot.
+#
+# Push a `v*` tag and this produces a *draft* release with both .exe files
+# attached: the notes are written by hand, as they always have been, and nothing
+# is public until you press Publish.
+#
+#   npm version 1.9.0 && git push && git push --tags
+#
+# It also runs on demand from the Actions tab, which builds the installers and
+# leaves them as a downloadable artifact without touching releases.
+
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      # A tag that disagrees with package.json would ship installers whose
+      # filenames and About box name a different version than the release does.
+      - name: Check the tag matches package.json
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        run: |
+          $tag = $env:GITHUB_REF_NAME -replace '^v', ''
+          $pkg = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          if ($tag -ne $pkg) {
+            Write-Error "Tag $env:GITHUB_REF_NAME does not match package.json version $pkg"
+            exit 1
+          }
+          Write-Host "Tag and package.json agree on $pkg"
+
+      - run: npm run typecheck
+
+      - run: npm run dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MG-windows-x64
+          path: release/*.exe
+          if-no-files-found: error
+
+      - name: Draft the release
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $version = $env:GITHUB_REF_NAME -replace '^v', ''
+          $assets = (Get-ChildItem -Path release -Filter *.exe -File).FullName
+          Write-Host "Attaching: $($assets -join ', ')"
+          gh release create $env:GITHUB_REF_NAME $assets `
+            --draft `
+            --title "MG $version" `
+            --notes "Draft. Replace these notes before publishing. Built from $env:GITHUB_SHA."
