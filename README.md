@@ -41,6 +41,29 @@ npm run icon           # regenerate build/icon.ico
 npm run typecheck
 ```
 
+### Releasing
+
+Write the notes at `docs/releases/v1.9.0.md`, then push the tag — GitHub Actions builds
+both installers on a Windows runner and publishes the release with them attached and
+those notes as the body. There is nothing to click afterwards.
+
+```
+npm version 1.9.0 && git push && git push --tags
+```
+
+Keeping the notes in the repo means the changelog is written and reviewed alongside the
+change it describes, rather than pasted into a web form once the code has shipped. A tag
+with no notes file still releases, falling back to GitHub's generated notes.
+
+The workflow refuses to build if the tag and `package.json` disagree. It also runs on
+demand from the Actions tab, which leaves the installers as a downloadable artifact
+without touching releases.
+
+Building for Windows from Linux is possible but awkward: electron-builder runs the
+Windows `rcedit` to stamp the icon and version onto `electron.exe`, which needs Wine —
+and specifically 32-bit Wine, because the Linux path hardcodes `rcedit-ia32.exe`. On
+macOS it is not supported at all. Use the workflow.
+
 ---
 
 ## The vault

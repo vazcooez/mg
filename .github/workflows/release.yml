@@ -1,0 +1,86 @@
+# Builds the Windows installers on a real Windows runner and publishes the release.
+#
+# MG only ever ships as Windows binaries, and electron-builder has to run the
+# Windows `rcedit` to stamp the icon and version onto electron.exe — which on
+# Linux means Wine, and on macOS is not supported at all. Doing it on
+# `windows-latest` sidesteps the lot.
+#
+# Push a `v*` tag and this publishes the release with both .exe files attached,
+# using the notes committed at docs/releases/<tag>.md — so the changelog is
+# written and reviewed alongside the change it describes rather than pasted into
+# a web form afterwards. A tag with no notes file falls back to GitHub's
+# generated notes rather than shipping a release with nothing in it.
+#
+#   npm version 1.9.0 && git push && git push --tags
+#
+# It also runs on demand from the Actions tab, which builds the installers and
+# leaves them as a downloadable artifact without touching releases.
+
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      # A tag that disagrees with package.json would ship installers whose
+      # filenames and About box name a different version than the release does.
+      - name: Check the tag matches package.json
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        run: |
+          $tag = $env:GITHUB_REF_NAME -replace '^v', ''
+          $pkg = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          if ($tag -ne $pkg) {
+            Write-Error "Tag $env:GITHUB_REF_NAME does not match package.json version $pkg"
+            exit 1
+          }
+          Write-Host "Tag and package.json agree on $pkg"
+
+      - run: npm run typecheck
+
+      - run: npm run dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MG-windows-x64
+          path: release/*.exe
+          if-no-files-found: error
+
+      - name: Publish the release
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $version = $env:GITHUB_REF_NAME -replace '^v', ''
+          $assets = (Get-ChildItem -Path release -Filter *.exe -File).FullName
+          Write-Host "Attaching: $($assets -join ', ')"
+
+          $notesFile = "docs/releases/$($env:GITHUB_REF_NAME).md"
+          if (Test-Path $notesFile) {
+            Write-Host "Using notes from $notesFile"
+            $notesArgs = @('--notes-file', $notesFile)
+          } else {
+            Write-Host "No $notesFile, falling back to generated notes"
+            $notesArgs = @('--generate-notes')
+          }
+
+          gh release create $env:GITHUB_REF_NAME $assets --title "MG $version" $notesArgs
