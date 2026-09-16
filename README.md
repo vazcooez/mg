@@ -43,21 +43,24 @@ npm run typecheck
 
 ### Releasing
 
-Write the notes at `docs/releases/v1.9.0.md`, then push the tag — GitHub Actions builds
-both installers on a Windows runner and publishes the release with them attached and
-those notes as the body. There is nothing to click afterwards.
+Bump the version, write the notes at `docs/releases/v1.9.0.md`, and merge. Then either:
 
-```
-npm version 1.9.0 && git push && git push --tags
-```
+- **Actions → Release → Run workflow**, with *Publish a release* ticked. The version is
+  read from `package.json` and the tag is created for you, so cutting a release needs no
+  local git at all.
+- **Push a `v*` tag**, if you would rather drive it from a terminal:
+  `npm version 1.9.0 && git push && git push --tags`
+
+Either way a Windows runner builds both installers and publishes the release with them
+attached and your notes as the body.
 
 Keeping the notes in the repo means the changelog is written and reviewed alongside the
 change it describes, rather than pasted into a web form once the code has shipped. A tag
 with no notes file still releases, falling back to GitHub's generated notes.
 
-The workflow refuses to build if the tag and `package.json` disagree. It also runs on
-demand from the Actions tab, which leaves the installers as a downloadable artifact
-without touching releases.
+A tag that disagrees with `package.json` is refused. Running the workflow *without*
+ticking the box just builds, leaving the installers as a downloadable artifact without
+touching releases.
 
 Building for Windows from Linux is possible but awkward: electron-builder runs the
 Windows `rcedit` to stamp the icon and version onto `electron.exe`, which needs Wine —

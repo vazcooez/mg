@@ -5,16 +5,20 @@
 # Linux means Wine, and on macOS is not supported at all. Doing it on
 # `windows-latest` sidesteps the lot.
 #
-# Push a `v*` tag and this publishes the release with both .exe files attached,
-# using the notes committed at docs/releases/<tag>.md — so the changelog is
-# written and reviewed alongside the change it describes rather than pasted into
-# a web form afterwards. A tag with no notes file falls back to GitHub's
-# generated notes rather than shipping a release with nothing in it.
+# Two ways to release, both ending in the same place:
 #
-#   npm version 1.9.0 && git push && git push --tags
+#   - Actions tab → Release → Run workflow, with "Publish a release" ticked.
+#     The version comes from package.json and the tag is created for you, so a
+#     release needs no local git at all.
+#   - Push a `v*` tag, if you would rather drive it from a terminal.
 #
-# It also runs on demand from the Actions tab, which builds the installers and
-# leaves them as a downloadable artifact without touching releases.
+# Either way the body comes from the notes committed at docs/releases/<tag>.md,
+# so the changelog is written and reviewed alongside the change it describes
+# rather than typed into a web form afterwards. A tag with no notes file still
+# releases, falling back to GitHub's generated notes rather than an empty body.
+#
+# Running it without ticking the box just builds, leaving the installers as a
+# downloadable artifact without touching releases.
 
 name: Release
 
@@ -22,6 +26,11 @@ on:
   push:
     tags: ['v*']
   workflow_dispatch:
+    inputs:
+      release:
+        description: Publish a release (version comes from package.json)
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -40,19 +49,32 @@ jobs:
 
       - run: npm ci
 
-      # A tag that disagrees with package.json would ship installers whose
-      # filenames and About box name a different version than the release does.
-      - name: Check the tag matches package.json
-        if: startsWith(github.ref, 'refs/tags/v')
+      - name: Work out what is being released
+        id: plan
         shell: pwsh
+        env:
+          RELEASE_REQUESTED: ${{ inputs.release }}
         run: |
-          $tag = $env:GITHUB_REF_NAME -replace '^v', ''
-          $pkg = (Get-Content package.json -Raw | ConvertFrom-Json).version
-          if ($tag -ne $pkg) {
-            Write-Error "Tag $env:GITHUB_REF_NAME does not match package.json version $pkg"
-            exit 1
+          $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
+
+          if ($env:GITHUB_REF_TYPE -eq 'tag') {
+            $tag = $env:GITHUB_REF_NAME
+            # A tag that disagrees with package.json would ship installers whose
+            # filenames and About box name a different version than the release.
+            if (($tag -replace '^v', '') -ne $version) {
+              Write-Error "Tag $tag does not match package.json version $version"
+              exit 1
+            }
+            $publish = 'true'
+          } else {
+            $tag = "v$version"
+            $publish = if ($env:RELEASE_REQUESTED -eq 'true') { 'true' } else { 'false' }
           }
-          Write-Host "Tag and package.json agree on $pkg"
+
+          Write-Host "version=$version tag=$tag publish=$publish"
+          "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "tag=$tag"         | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "publish=$publish" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
 
       - run: npm run typecheck
 
@@ -60,21 +82,22 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: MG-windows-x64
+          name: MG-${{ steps.plan.outputs.version }}-windows-x64
           path: release/*.exe
           if-no-files-found: error
 
       - name: Publish the release
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: steps.plan.outputs.publish == 'true'
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.plan.outputs.tag }}
+          VERSION: ${{ steps.plan.outputs.version }}
         run: |
-          $version = $env:GITHUB_REF_NAME -replace '^v', ''
           $assets = (Get-ChildItem -Path release -Filter *.exe -File).FullName
           Write-Host "Attaching: $($assets -join ', ')"
 
-          $notesFile = "docs/releases/$($env:GITHUB_REF_NAME).md"
+          $notesFile = "docs/releases/$($env:TAG).md"
           if (Test-Path $notesFile) {
             Write-Host "Using notes from $notesFile"
             $notesArgs = @('--notes-file', $notesFile)
@@ -83,4 +106,9 @@ jobs:
             $notesArgs = @('--generate-notes')
           }
 
-          gh release create $env:GITHUB_REF_NAME $assets --title "MG $version" $notesArgs
+          # --target creates the tag at this commit when it does not exist yet,
+          # which is what makes a release from the Actions tab possible.
+          gh release create $env:TAG $assets `
+            --target $env:GITHUB_SHA `
+            --title "MG $($env:VERSION)" `
+            $notesArgs
