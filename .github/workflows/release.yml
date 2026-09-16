@@ -78,7 +78,17 @@ jobs:
 
       - run: npm run typecheck
 
-      - run: npm run dist
+      # The same three steps as `npm run dist`, spelled out so electron-builder
+      # can be given `--publish never`: left to itself it sees CI, decides it
+      # should publish the artifacts, and fails for want of a token it was never
+      # meant to have. Publishing is the release step's job, below.
+      #
+      # The flag cannot ride through `npm run dist --`: npm swallows `-p` and
+      # `--publish` as its own options, and only the bare `never` comes out the
+      # other side.
+      - run: npm run icon
+      - run: npm run build
+      - run: npx electron-builder --win --publish never
 
       - uses: actions/upload-artifact@v4
         with:
