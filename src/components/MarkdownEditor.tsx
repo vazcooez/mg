@@ -14,6 +14,7 @@ import { indentUnit, syntaxHighlighting, HighlightStyle } from '@codemirror/lang
 import { searchKeymap } from '@codemirror/search';
 import { tags } from '@lezer/highlight';
 import { livePreview, notePath } from '../editor/livePreview';
+import { noteFolding } from '../editor/folding';
 
 /**
  * A real text editor for notes, built on CodeMirror.
@@ -126,6 +127,9 @@ export default function MarkdownEditor({
         indentUnit.of('  '),
         markdown({ base: markdownLanguage, addKeymap: false }),
         syntaxHighlighting(highlight),
+        // Folding is an editing feature, not a rendering one, so it is outside
+        // the live-preview compartment: sections collapse in Source mode too.
+        noteFolding,
         pathComp.current.of(notePath.of(path)),
         preview.current.of(livePreviewOn ? livePreview : []),
         keymap.of([

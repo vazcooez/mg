@@ -26,6 +26,7 @@ import {
   DEFAULT_SETTINGS,
   defaultColumnWidth,
   dirName,
+  extOf,
   EDITOR_FONT_STACKS,
   Doc,
   DocFile,
@@ -34,6 +35,7 @@ import {
   LAYOUTS,
   MatrixAxes,
   minColumnWidth,
+  KNOWN_EXTS,
   NOTE_EXT,
   NoteDoc,
   NoteView,
@@ -1278,14 +1280,53 @@ function carryUiState(fresh: Doc, prev: Doc): Doc {
   return applyUi({ ...fresh, id: prev.id } as Doc, pickUi(prev));
 }
 
-/** Re-applies the live window state onto a restored history snapshot. */
+/**
+ * Where a buffer lives and what its file last held. Saving is deliberately kept
+ * out of the undo history, so a snapshot taken before a save still carries the
+ * pre-save `saved` text and `mtime` — restoring those would undo the save as
+ * well as the edit, and a stale `mtime` makes the very next vault change look
+ * like an external edit, which silently replaces a clean buffer with the file.
+ * Undo rewinds what the document says, never its relationship with disk.
+ */
+interface DocFileState {
+  path: string | null;
+  saved: string | null;
+  mtime: number | null;
+  missing?: boolean;
+  conflict?: boolean;
+}
+
+function pickFile(doc: Doc): DocFileState {
+  const { path, saved, mtime, missing, conflict } = doc;
+  return { path, saved, mtime, missing, conflict };
+}
+
+function applyFile(doc: Doc, file: DocFileState): Doc {
+  if (
+    doc.path === file.path &&
+    doc.saved === file.saved &&
+    doc.mtime === file.mtime &&
+    doc.missing === file.missing &&
+    doc.conflict === file.conflict
+  ) {
+    return doc;
+  }
+  return { ...doc, ...file } as Doc;
+}
+
+/**
+ * Re-applies the live window state and file state onto a restored history
+ * snapshot: undo moves the content back, and nothing else.
+ */
 function keepUiAcross(snapshot: Workspace, current: Workspace): Workspace {
-  const ui = new Map(current.docs.map((d) => [d.id, pickUi(d)]));
+  const live = new Map(current.docs.map((d) => [d.id, { ui: pickUi(d), file: pickFile(d) }]));
   let changed = false;
   const docs = snapshot.docs.map((d) => {
-    const state = ui.get(d.id);
-    if (!state) return d;
-    const next = applyUi(d, state);
+    const from = live.get(d.id);
+    // A document the snapshot has but the present does not (it was closed since)
+    // keeps its own file state: there is no newer one to prefer.
+    if (!from) return d;
+    const next = applyFile(applyUi(d, from.ui), from.file);
     if (next !== d) changed = true;
     return next;
   });
@@ -2635,9 +2676,18 @@ export async function revertDoc(docId: string): Promise<SaveResult> {
 export async function renameFile(rel: string, nextName: string): Promise<SaveResult> {
   if (!window.api) return { ok: false, error: 'Renaming needs the desktop app' };
   const folder = dirName(rel);
-  const ext = rel.toLowerCase().endsWith(TODO_EXT) ? TODO_EXT : NOTE_EXT;
-  const clean = safeFileName(nextName.replace(/\.(md|mgtodo)$/i, ''));
-  const target = `${folder ? folder + '/' : ''}${clean}${ext}`;
+  const typed = nextName.trim();
+  const typedExt = extOf(typed);
+  const known = KNOWN_EXTS.includes(typedExt);
+  // A file keeps the kind it already is. Typing a different known extension is
+  // honoured only when it means the same kind of document — `.png` to `.jpg` is
+  // still an image, but a note that acquired `.mgtodo` would be a note whose
+  // next save writes markdown into a todo file.
+  const ext =
+    known && kindForPath(typed) === kindForPath(rel) ? typedExt : extOf(rel) || NOTE_EXT;
+  // An unknown suffix is part of the name: "notes.v2" is not an extension.
+  const stem = known ? typed.slice(0, typed.length - typedExt.length) : typed;
+  const target = `${folder ? folder + '/' : ''}${safeFileName(stem)}${ext}`;
   if (target === rel) return { ok: true };
 
   const res = await window.api.file.rename(rel, target);
