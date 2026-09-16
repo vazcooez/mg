@@ -508,6 +508,19 @@ export interface Workspace {
 export const NOTE_EXT = '.md';
 export const TODO_EXT = '.mgtodo';
 
+/** Every extension the vault knows how to open. */
+export const KNOWN_EXTS = [NOTE_EXT, TODO_EXT, DIAGRAM_EXT, ...IMAGE_EXTS];
+
+/**
+ * The extension a path carries, lowercased, or '' when it has none. A leading
+ * dot is part of the name, not an extension: `.gitignore` has none.
+ */
+export function extOf(rel: string): string {
+  const name = rel.split('/').pop() ?? rel;
+  const at = name.lastIndexOf('.');
+  return at > 0 ? name.slice(at).toLowerCase() : '';
+}
+
 export function baseName(rel: string): string {
   const name = rel.split('/').pop() ?? rel;
   // Images keep their extension: "logo.png" and "logo.svg" are different files.

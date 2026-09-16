@@ -1,21 +1,11 @@
-export {};
+// The vault shapes are declared once, in types.ts; the bridge below describes
+// the same values crossing IPC, so it imports them rather than restating them.
+import type { VaultDir, VaultFile } from './types';
 
 interface Ok {
   ok: boolean;
   error?: string;
   canceled?: boolean;
-}
-
-export interface VaultFile {
-  rel: string;
-  name: string;
-  type: 'todo' | 'note' | 'diagram';
-  mtime: number;
-}
-
-export interface VaultDir {
-  rel: string;
-  name: string;
 }
 
 declare global {

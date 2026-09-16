@@ -1,7 +1,8 @@
 # MG
 
-A Windows desktop app for two kinds of document — **todo documents** and **free notes** —
-with Sublime Text-style window management and an Obsidian-style file vault.
+A Windows desktop app for three kinds of document — **todo documents**, **free notes**
+and **diagrams** — with Sublime Text-style window management and an Obsidian-style file
+vault.
 
 Built with Electron + React + TypeScript + Vite. No cloud, no account: everything is
 files on your disk.
@@ -14,8 +15,8 @@ redistributable.
 
 | File | |
 |---|---|
-| `MG-Setup-1.0.0.exe` | Installer (~75 MB). Per-user, no admin rights, lets you choose the folder, creates Start Menu and desktop shortcuts, uninstalls from Add/Remove Programs. |
-| `MG-1.0.0-portable.exe` | Single file (~75 MB). Copy it anywhere — USB stick, network share — and double-click. Installs nothing. |
+| `MG-Setup-1.8.0.exe` | Installer (~75 MB). Per-user, no admin rights, lets you choose the folder, creates Start Menu and desktop shortcuts, uninstalls from Add/Remove Programs. |
+| `MG-1.8.0-portable.exe` | Single file (~75 MB). Copy it anywhere — USB stick, network share — and double-click. Installs nothing. |
 
 Requires 64-bit Windows 10 (1809 or newer) or Windows 11.
 
@@ -52,11 +53,15 @@ commit to git. The default is `Documents\MG Vault`; change it with
 MG Vault/
   Welcome.md                  free note   — plain markdown, Obsidian can read it
   Product launch.mgtodo       todo doc    — pretty-printed JSON
+  Architecture.mgdiagram      diagram     — pretty-printed JSON
   Projects/
     Q3 roadmap.md
   .mg/
     session.json              window state + unsaved buffers
 ```
+
+Renaming a file in the sidebar keeps the kind it already is: a `.mgdiagram` stays
+a diagram and `logo.png` stays a picture, whether or not you retype the extension.
 
 A `.mgtodo` file holds only content — title, the property schema, and the items.
 Nothing about how you happen to be looking at it is written there, so the file stays
@@ -157,8 +162,9 @@ draggable. Middle-click closes a tab.
 Every item has a **parent** (optional), title, assignee, **urgency** 1–10,
 **importance** 1–10, **weight** 1–10, a **color** that inherits from its parent unless
 overridden, a **status** (planned / scheduled / in progress / done), a **show on the
-matrix** flag, and any number of **custom properties**. The tree nests as deep as you
-like.
+matrix** flag, a long-form **description** in markdown, an optional **start time** and
+**duration** for the calendar, and any number of **custom properties**. The tree nests
+as deep as you like.
 
 ### Eisenhower matrix (`Ctrl+Alt+1`)
 
@@ -208,6 +214,30 @@ editable column.
   manual reordering pauses; the toolbar chip clears it.
 - Right-click a header (or use its `⋮`) for sort, width, type and display options.
 
+### Calendar (`Ctrl+Alt+7`)
+
+An item with a **start time** and a **duration** gets a block on the calendar; one
+without a start is simply unscheduled. Day and week views, `‹` / `›` to step and
+**Today** to come back.
+
+- **Drag a block** to move it, **drag its bottom edge** to change how long it runs.
+- The **queue** on the right holds work that has no time yet. Drag something out of it
+  onto the calendar to schedule it. The queue filters by *matrix quadrant* rather than
+  by workflow status — what you schedule is the important-but-not-urgent work, which is
+  the whole point of the second quadrant.
+- Blocks carry their item's colour, so the week reads the same way the matrix does.
+
+### Trash
+
+Deleting an item from a todo document puts it in that document's trash rather than
+destroying it — the item keeps its children, its properties and its place in the tree.
+The trash view lists what is in there with **Restore** per item, plus **Restore all**
+and **Empty trash**; emptying asks first, because that one really is permanent.
+
+The trash lives inside the `.mgtodo` file, so it travels with the document and survives
+a restart. Deleting a *file* from the sidebar is a different thing entirely: that goes
+to the Windows recycle bin.
+
 ### Property types
 
 Each custom property is declared as one of five types, picked when you add the column,
@@ -248,8 +278,9 @@ The inspector on the right edits everything at once, including color inheritance
 
 Property *definitions*, values, and matrix visibility are document content — they live
 in the file and mark the buffer unsaved. View mode, sort, column widths, display
-modes, matrix orientation and zoom are **window state**: they persist in the session
-and survive restarts, but never dirty a document and are never rewound by undo.
+modes, matrix orientation, zoom, diagram pan and folded note sections are **window
+state**: they persist in the session and survive restarts, but never dirty a document
+and are never rewound by undo.
 
 ---
 
@@ -278,8 +309,31 @@ does not exist. Task checkboxes are clickable and write back into the markdown.
 List markers are drawn rather than typed: `-` shows as a bullet, `•` at the top level
 and `◦` then `▪` as you nest, and ordered lists keep their numbers. The caret steps
 over a marker in one press instead of disappearing inside it, and the glyph cannot be
-selected as text — but a copy still yields the real markdown. Nested items carry a
-vertical rule per ancestor level, so a run of children reads as one group.
+selected as text. Copying takes you at your word: a bullet or a task box is drawn, not
+typed, so `- ` and `- [ ] ` stay behind and the clipboard holds the words you could
+actually see. Indentation comes along, so a nested list pastes as a nested list. The
+document itself keeps its markdown — switch to **Source** (`Ctrl+Alt+5`) and copying
+there yields the raw form, marker and all. Nested items carry a vertical rule per
+ancestor level, so a run of children reads as one group.
+
+### Folding sections
+
+A heading owns everything below it up to the next heading of the same or higher rank,
+so collapsing `## Design` takes its prose and its `###` subsections with it and stops
+at the next `##`.
+
+Hover a heading and a ▾ appears in the margin — click it to collapse, and the heading
+keeps a `⋯` chip you can click to bring the section back. A collapsed heading shows its
+arrow permanently, so a folded section never hides silently. Headings with nothing under
+them have no arrow, and a `#` inside a fenced code block is code, not a heading.
+
+| | |
+|---|---|
+| `Ctrl+Shift+[` / `Ctrl+Shift+]` | Fold / unfold the section at the caret |
+| `Ctrl+Alt+[` / `Ctrl+Alt+]` | Fold / unfold every section |
+
+Folding is a property of the window, not the file: it works in **Live** and **Source**
+alike, never marks the buffer unsaved, and a folded note saves exactly as it reads.
 
 Tables render as a real grid in live preview — column alignment included — and revert
 to their pipe source the moment the caret enters them, so they stay editable as text.
@@ -292,6 +346,29 @@ Drop an image file onto a note and it is copied into the note's folder in the va
 and linked as `![name](name.png)`. Relative links resolve against the note, so
 `![](Media/shot.png)` and `![](../logo.png)` both work, in live preview and in the
 rendered view. Links that point outside the vault are clamped back into it.
+
+---
+
+## Diagrams
+
+A third document kind, in `.mgdiagram` files — pretty-printed JSON, like todo
+documents, so a diagram diffs in git.
+
+- **Double-click the canvas** to add a node, or right-click for *Add shape here*.
+  Double-click a node to rename it — `Enter` finishes, `Escape` cancels.
+- **Drag from a node's edge** to connect it to another. Dropping on empty canvas instead
+  creates the next node already wired up, named and ready to type, so a chain of boxes
+  is one gesture each. Connectors route as elbows by default, or straight, or curved.
+- Nodes come as rectangles, rounded rectangles, ellipses or diamonds, and carry their
+  own colour.
+- Drag to move, drag a corner to resize; snapping to the grid is on by default and can
+  be turned off.
+- **Drag the background** to marquee-select; `Shift+drag` or middle-drag pans instead.
+- `Delete` removes what is selected, `Escape` clears the selection.
+- Scroll to zoom — the point under the cursor stays put. **Reset view** returns to 100%.
+
+Zoom and pan are window state, not content: moving around a diagram never marks it
+unsaved.
 
 ---
 
@@ -316,7 +393,9 @@ defaults.
 ## Notes
 
 - Undo/redo (`Ctrl+Z` / `Ctrl+Shift+Z`) covers document edits — item moves, matrix
-  drags, table edits — with rapid changes coalesced into single steps.
+  drags, table edits — with rapid changes coalesced into single steps. It rewinds what
+  a document *says* and nothing else: undoing back past a save leaves the file saved,
+  and simply shows the buffer as unsaved again.
 - `F5` reloads the vault from disk.
 - If you launch from VS Code's integrated terminal, `ELECTRON_RUN_AS_NODE=1` is set in
   that environment and will make Electron run `main.js` as a plain Node script.

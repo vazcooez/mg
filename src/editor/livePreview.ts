@@ -244,6 +244,40 @@ const LIST = /^([ \t]*)([-*+]|\d+[.)])([ \t]+)/;
 /** One glyph per nesting level, cycling — the HTML list convention. */
 const BULLETS = ['•', '◦', '▪'];
 
+/** Fence lines, so a copied code sample is never mistaken for a list. */
+const FENCE = /^\s*(```|~~~)/;
+/** A task's own marker: the box, and the space the text starts after. */
+const TASK_BOX = /^\[[ xX]\]\s?/;
+
+/**
+ * What a copy yields. In live preview a list marker is a drawn glyph and a task
+ * box is a real checkbox — neither is text on the screen, so carrying `- ` or
+ * `- [ ] ` out with the words would paste something the reader never saw. Only
+ * the clipboard is trimmed; the document keeps its markdown, and Source mode
+ * does not load this extension, so the raw form is one Ctrl+Alt+5 away.
+ */
+function copyWithoutMarkers(text: string, state: EditorState): string {
+  const br = state.lineBreak;
+  let fenced = false;
+  return text
+    .split(br)
+    .map((line) => {
+      if (FENCE.test(line)) {
+        fenced = !fenced;
+        return line;
+      }
+      // Indentation stays: it is what tells a nested item from a top-level one.
+      if (fenced || HR.test(line)) return line;
+      const list = LIST.exec(line);
+      if (!list) return line;
+      const [, indent, marker, gap] = list;
+      const rest = line.slice(indent.length + marker.length + gap.length);
+      const box = TASK_BOX.exec(rest);
+      return indent + (box ? rest.slice(box[0].length) : rest);
+    })
+    .join(br);
+}
+
 /** Editor indent unit, matching `indentUnit.of('  ')` in the editor setup. */
 const INDENT_WIDTH = 2;
 
@@ -574,4 +608,10 @@ const inlinePreview = ViewPlugin.fromClass(
   }
 );
 
-export const livePreview: Extension = [tableField, tableMotion, charWidth, inlinePreview];
+export const livePreview: Extension = [
+  tableField,
+  tableMotion,
+  charWidth,
+  inlinePreview,
+  EditorView.clipboardOutputFilter.of(copyWithoutMarkers),
+];

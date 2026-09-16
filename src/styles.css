@@ -2363,6 +2363,61 @@ input.cell-check.prop-check {
   font-size: 1.05em;
 }
 
+/* Heading folding. The arrow sits in the editor's left padding rather than in
+   a gutter, so showing it never shifts the heading text sideways; it stays out
+   of the way until the line is hovered, unless its section is collapsed — a
+   folded heading has to say so on its own. */
+.cm-fold-head {
+  position: relative;
+}
+
+.cm-fold-arrow {
+  position: absolute;
+  left: -20px;
+  top: 0;
+  width: 14px;
+  /* Fixed, not `em`: the arrow is the same size against an h1 and an h6. */
+  font-size: 11px;
+  line-height: inherit;
+  text-align: center;
+  color: var(--text-faint);
+  cursor: pointer;
+  user-select: none;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+.cm-fold-head:hover .cm-fold-arrow,
+.cm-fold-arrow.cm-folded {
+  opacity: 1;
+}
+
+.cm-fold-arrow:hover {
+  color: var(--text);
+}
+
+/* What a collapsed section leaves behind, at the end of its heading. */
+.cm-fold-placeholder {
+  display: inline-block;
+  margin-left: 0.6ch;
+  padding: 0 7px;
+  border: 1px solid var(--line-soft);
+  border-radius: 7px;
+  background: var(--chrome-dark);
+  color: var(--text-dim);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.5;
+  vertical-align: middle;
+  cursor: pointer;
+  user-select: none;
+}
+
+.cm-fold-placeholder:hover {
+  border-color: var(--accent-soft);
+  color: var(--text);
+}
+
 .cm-strong {
   font-weight: 700;
 }
