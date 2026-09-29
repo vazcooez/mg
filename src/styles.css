@@ -19,7 +19,8 @@
 :root[data-theme='dark'] {
   --chrome: #2b333b;
   --chrome-dark: #232a31;
-  --bg: #343d46;
+  /* Mariana's own editor background. */
+  --bg: #303841;
   --bg-raised: #3b444d;
   --sidebar: #2c353d;
   --line: #1f262c;
@@ -36,6 +37,20 @@
   --shadow: 0 10px 34px rgba(0, 0, 0, 0.45);
   /* Sequential blue, stepped for the dark surface. */
   --meter-fill: #5598e7;
+  /* Note text in Mariana, Sublime Text's default colour scheme. */
+  --syn-heading: #6699cc;
+  --syn-punct: #5fb4b4;
+  --syn-bold: #f9ae58;
+  --syn-italic: #c695c6;
+  --syn-code: #99c794;
+  --syn-link: #5fb4b4;
+  --syn-url: #a6acb9;
+  --syn-quote: #a6acb9;
+  --syn-list: #ec5f67;
+  --syn-tag: #fac863;
+  --caret: #f9ae58;
+  --gutter-text: #65737e;
+  --minimap-text: #a6acb9;
 }
 
 :root[data-theme='light'] {
@@ -58,6 +73,20 @@
   --shadow: 0 10px 30px rgba(30, 40, 55, 0.18);
   /* Same hue, stepped for the light surface. */
   --meter-fill: #2a78d6;
+  /* Mariana's hues, darkened until they read on a white page. */
+  --syn-heading: #2f6fb5;
+  --syn-punct: #2b8585;
+  --syn-bold: #b25d00;
+  --syn-italic: #8e4b98;
+  --syn-code: #3b7d3b;
+  --syn-link: #1f7f86;
+  --syn-url: #7a8794;
+  --syn-quote: #6c7885;
+  --syn-list: #c8402c;
+  --syn-tag: #946800;
+  --caret: #2c333a;
+  --gutter-text: #a3aeb8;
+  --minimap-text: #7a8794;
 }
 
 * {
@@ -169,14 +198,43 @@ kbd {
 /* =============================================================== sidebar */
 
 .sidebar {
+  position: relative;
   font-size: var(--chrome-font-size);
-  width: 246px;
-  flex: 0 0 246px;
+  width: var(--sidebar-width, 246px);
+  flex: 0 0 var(--sidebar-width, 246px);
   background: var(--sidebar);
   border-right: 1px solid var(--line);
   display: flex;
   flex-direction: column;
   min-height: 0;
+}
+
+/* The sidebar's right edge: drag to resize, double-click to reset. The grab
+   area straddles the border so it is easy to hit without covering the tree. */
+.sidebar-resizer {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: -3px;
+  width: 6px;
+  z-index: 30;
+  cursor: col-resize;
+}
+
+.sidebar-resizer::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 2px;
+  width: 2px;
+  background: transparent;
+  transition: background 0.12s ease 0.1s;
+}
+
+.sidebar-resizer:hover::after,
+body.resizing .sidebar-resizer::after {
+  background: var(--accent);
 }
 
 /* Explorer | Search, at the top of the sidebar. */
@@ -2759,8 +2817,53 @@ input.cell-check.prop-check {
 /* Headings size the whole line, so hidden hashes leave no gap. */
 .cm-heading {
   font-weight: 650;
-  color: color-mix(in srgb, var(--accent) 55%, var(--text));
+  color: var(--syn-heading);
   line-height: 1.35;
+}
+
+/* Source mode: the text starts beside the line numbers, as in any text editor,
+   rather than floating in the middle of the pane. */
+.cm-editor.cm-source-mode .cm-content {
+  margin-left: 0;
+  padding-left: 12px;
+}
+
+/* ---------------------------------------------------------------- minimap */
+
+.cm-editor.cm-has-minimap .cm-scroller {
+  margin-right: 96px;
+}
+
+.cm-minimap {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 96px;
+  overflow: hidden;
+  cursor: default;
+  user-select: none;
+  border-left: 1px solid color-mix(in srgb, var(--line) 60%, transparent);
+}
+
+.cm-minimap canvas {
+  display: block;
+}
+
+/* The part of the note on screen. It shows faintly, and firmly on hover. */
+.cm-minimap-slider {
+  position: absolute;
+  left: 0;
+  right: 0;
+  background: color-mix(in srgb, var(--text) 7%, transparent);
+  border-top: 1px solid color-mix(in srgb, var(--text) 10%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--text) 10%, transparent);
+  transition: background 0.12s ease;
+}
+
+.cm-minimap:hover .cm-minimap-slider,
+.cm-minimap.dragging .cm-minimap-slider {
+  background: color-mix(in srgb, var(--text) 13%, transparent);
 }
 
 .cm-h1 {
@@ -2835,10 +2938,12 @@ input.cell-check.prop-check {
 
 .cm-strong {
   font-weight: 700;
+  color: var(--syn-bold);
 }
 
 .cm-em {
   font-style: italic;
+  color: var(--syn-italic);
 }
 
 .cm-strike {
@@ -2853,6 +2958,7 @@ input.cell-check.prop-check {
 
 .cm-inline-code,
 .cm-mono-tok {
+  color: var(--syn-code);
   font-family: var(--font-mono);
   font-size: 0.9em;
   background: var(--chrome-dark);
@@ -2861,6 +2967,7 @@ input.cell-check.prop-check {
 }
 
 .cm-code-line {
+  color: var(--syn-code);
   font-family: var(--font-mono);
   font-size: 0.9em;
   background: color-mix(in srgb, var(--chrome-dark) 70%, transparent);
@@ -2869,7 +2976,8 @@ input.cell-check.prop-check {
 .cm-quote-line {
   border-left: 3px solid var(--accent-soft);
   padding-left: 10px !important;
-  color: var(--text-dim);
+  color: var(--syn-quote);
+  font-style: italic;
 }
 
 /* The rule runs through the middle of the line, where a divider reads as one,
@@ -2951,14 +3059,14 @@ input.cell-check.prop-check {
 .cm-bullet {
   display: inline-block;
   width: 2ch;
-  color: var(--text-faint);
+  color: var(--syn-list);
   user-select: none;
   cursor: default;
 }
 
 /* Its width is set inline from the label, so wrapped lines can hang under it. */
 .cm-bullet-num {
-  color: var(--text-dim);
+  color: var(--syn-list);
 }
 
 /* One vertical rule per ancestor level, so a nested run reads as one group.
@@ -3000,20 +3108,20 @@ input.cell-check.prop-check {
 }
 
 .cm-hashtag-inline {
-  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  background: color-mix(in srgb, var(--syn-tag) 16%, transparent);
   border-radius: 10px;
   padding: 1px 6px;
-  color: var(--accent);
+  color: var(--syn-tag);
 }
 
 .cm-link,
 .cm-link-tok {
-  color: var(--accent);
+  color: var(--syn-link);
   cursor: pointer;
 }
 
 .cm-url-tok {
-  color: var(--text-faint);
+  color: var(--syn-url);
 }
 
 /* ------------------------------------------------- live preview editor */
@@ -3138,7 +3246,7 @@ input.cell-check.prop-check {
   margin: 1.4em 0 0.5em;
   line-height: 1.3;
   font-weight: 650;
-  color: color-mix(in srgb, var(--accent) 55%, var(--text));
+  color: var(--syn-heading);
 }
 
 .markdown-body h1 {
@@ -3166,7 +3274,7 @@ input.cell-check.prop-check {
 }
 
 .markdown-body a {
-  color: var(--accent);
+  color: var(--syn-link);
   text-decoration: none;
 }
 
@@ -3195,6 +3303,7 @@ input.cell-check.prop-check {
 }
 
 .markdown-body code {
+  color: var(--syn-code);
   font-family: var(--font-mono);
   font-size: 0.88em;
   background: var(--chrome-dark);

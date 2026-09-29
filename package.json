@@ -1,6 +1,6 @@
 {
   "name": "mg",
-  "version": "1.9.0",
+  "version": "1.10.0",
   "description": "MG - Todo & Free Note workspace for Windows",
   "main": "electron/main.js",
   "author": "MG",
@@ -16,6 +16,7 @@
     "dist:portable": "npm run icon && npm run build && electron-builder --win portable"
   },
   "dependencies": {
+    "@codemirror/autocomplete": "^6.20.3",
     "@codemirror/commands": "^6.10.4",
     "@codemirror/lang-markdown": "^6.5.1",
     "@codemirror/language": "^6.12.4",

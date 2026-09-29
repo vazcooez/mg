@@ -1,6 +1,15 @@
 import { useEffect, useRef } from 'react';
 import { EditorState, Compartment } from '@codemirror/state';
-import { EditorView, keymap, drawSelection, highlightActiveLine, rectangularSelection } from '@codemirror/view';
+import {
+  EditorView,
+  keymap,
+  crosshairCursor,
+  drawSelection,
+  highlightActiveLine,
+  highlightActiveLineGutter,
+  lineNumbers,
+  rectangularSelection,
+} from '@codemirror/view';
 import {
   defaultKeymap,
   history,
@@ -10,12 +19,15 @@ import {
   standardKeymap,
 } from '@codemirror/commands';
 import { markdown, markdownLanguage, insertNewlineContinueMarkup } from '@codemirror/lang-markdown';
-import { indentUnit, syntaxHighlighting, HighlightStyle } from '@codemirror/language';
+import { bracketMatching, indentUnit, syntaxHighlighting, HighlightStyle } from '@codemirror/language';
+import { closeBrackets, closeBracketsKeymap } from '@codemirror/autocomplete';
 import { searchKeymap } from '@codemirror/search';
 import { tags } from '@lezer/highlight';
 import { livePreview, notePath } from '../editor/livePreview';
 import { noteFolding } from '../editor/folding';
 import { findPanel, openReplacePanel } from '../editor/searchPanel';
+import { caretInfo, sublimeKeymap } from '../editor/sublimeKeys';
+import { minimap } from '../editor/minimap';
 import * as S from '../store';
 
 /**
@@ -26,17 +38,43 @@ import * as S from '../store';
  * of a genuine editor, not something a set of rendered divs can be patched into.
  */
 
+/**
+ * Markdown in Mariana, Sublime Text's default scheme. The colours are theme
+ * tokens (`--syn-*` in styles.css), so light mode gets its own readable set.
+ */
 const highlight = HighlightStyle.define([
-  { tag: tags.heading1, class: 'cm-h1-tok' },
-  { tag: tags.heading2, class: 'cm-h2-tok' },
-  { tag: tags.strong, fontWeight: '700' },
-  { tag: tags.emphasis, fontStyle: 'italic' },
+  // A rule with a `class` takes only the class, never its inline style — so
+  // styled rules carry no class, and classed ones are coloured in styles.css.
+  { tag: tags.heading, color: 'var(--syn-heading)', fontWeight: '700' },
+  { tag: tags.processingInstruction, color: 'var(--syn-punct)' },
+  { tag: tags.contentSeparator, color: 'var(--syn-punct)' },
+  { tag: tags.strong, color: 'var(--syn-bold)', fontWeight: '700' },
+  { tag: tags.emphasis, color: 'var(--syn-italic)', fontStyle: 'italic' },
   { tag: tags.strikethrough, textDecoration: 'line-through' },
   { tag: tags.monospace, class: 'cm-mono-tok' },
   { tag: tags.link, class: 'cm-link-tok' },
   { tag: tags.url, class: 'cm-url-tok' },
-  { tag: tags.quote, class: 'cm-quote-tok' },
+  { tag: tags.quote, color: 'var(--syn-quote)', fontStyle: 'italic' },
+  { tag: tags.comment, color: 'var(--syn-quote)', fontStyle: 'italic' },
+  { tag: [tags.labelName, tags.string], color: 'var(--syn-link)' },
 ]);
+
+/**
+ * Source mode is where a note is edited as text, so it gets what a text
+ * editor has: line numbers, and the text starting beside them rather than in
+ * the middle of the pane.
+ */
+const sourceMode = [
+  lineNumbers(),
+  highlightActiveLineGutter(),
+  EditorView.editorAttributes.of({ class: 'cm-source-mode' }),
+];
+
+/**
+ * Ctrl+G is Goto Line, as in Sublime, rather than CodeMirror's "find next"
+ * (F3 still does that); the window catches it on the way out.
+ */
+const noteSearchKeymap = searchKeymap.filter((b) => b.key !== 'Mod-g');
 
 /**
  * CodeMirror ships light and dark selection defaults behind `&light`/`&dark`
@@ -75,8 +113,19 @@ function buildTheme(dark: boolean) {
       '&.cm-editor .cm-content ::selection': { backgroundColor: selectionFocused },
       '&.cm-editor .cm-line::selection': { backgroundColor: selectionFocused },
 
-      '.cm-cursor, .cm-dropCursor': { borderLeftColor: 'var(--text)', borderLeftWidth: '2px' },
-      '.cm-gutters': { display: 'none' },
+      '.cm-cursor, .cm-dropCursor': { borderLeftColor: 'var(--caret)', borderLeftWidth: '2px' },
+      '.cm-gutters': {
+        backgroundColor: 'transparent',
+        border: 'none',
+        color: 'var(--gutter-text)',
+        paddingLeft: '6px',
+      },
+      '.cm-activeLineGutter': { backgroundColor: 'transparent', color: 'var(--text)' },
+      '.cm-lineNumbers .cm-gutterElement': { padding: '0 10px 0 8px', minWidth: '28px' },
+      '&.cm-focused .cm-matchingBracket': {
+        backgroundColor: 'transparent',
+        outline: '1px solid color-mix(in srgb, var(--text) 45%, transparent)',
+      },
       '.cm-panels': { backgroundColor: 'var(--chrome)', color: 'var(--text)' },
       '.cm-panels-top': { borderBottom: '1px solid var(--line)' },
       '.cm-searchMatch': {
@@ -94,6 +143,7 @@ export default function MarkdownEditor({
   docId,
   value,
   livePreviewOn,
+  minimapOn,
   theme,
   path,
   onChange,
@@ -103,6 +153,7 @@ export default function MarkdownEditor({
   docId: string;
   value: string;
   livePreviewOn: boolean;
+  minimapOn: boolean;
   theme: 'dark' | 'light';
   /** The note's vault path, used to resolve relative image links. */
   path: string | null;
@@ -114,6 +165,8 @@ export default function MarkdownEditor({
   const preview = useRef(new Compartment());
   const pathComp = useRef(new Compartment());
   const themeComp = useRef(new Compartment());
+  const sourceComp = useRef(new Compartment());
+  const minimapComp = useRef(new Compartment());
   // Kept in refs so the editor is created once and never torn down mid-typing.
   const onChangeRef = useRef(onChange);
   const onOpenRef = useRef(onOpenLink);
@@ -127,13 +180,21 @@ export default function MarkdownEditor({
       doc: value,
       extensions: [
         history(),
+        // Multiple cursors, Sublime's defining feature: Ctrl+D, Ctrl+click,
+        // Ctrl+Shift+L and Alt+drag all need the editor to hold more than one.
+        EditorState.allowMultipleSelections.of(true),
         drawSelection(),
         rectangularSelection(),
+        crosshairCursor(),
         highlightActiveLine(),
+        bracketMatching(),
+        closeBrackets(),
         EditorView.lineWrapping,
         indentUnit.of('  '),
         markdown({ base: markdownLanguage, addKeymap: false }),
         syntaxHighlighting(highlight),
+        sourceComp.current.of(livePreviewOn ? [] : sourceMode),
+        minimapComp.current.of(minimapOn ? minimap : []),
         // Folding is an editing feature, not a rendering one, so it is outside
         // the live-preview compartment: sections collapse in Source mode too.
         noteFolding,
@@ -145,14 +206,20 @@ export default function MarkdownEditor({
           { key: 'Enter', run: insertNewlineContinueMarkup },
           { key: 'Tab', run: indentMore, shift: indentLess },
           { key: 'Mod-h', run: openReplacePanel, preventDefault: true },
+          ...sublimeKeymap,
+          ...closeBracketsKeymap,
           ...standardKeymap,
           ...defaultKeymap,
           ...historyKeymap,
-          ...searchKeymap,
+          ...noteSearchKeymap,
         ]),
         themeComp.current.of(buildTheme(theme === 'dark')),
         EditorView.updateListener.of((u) => {
           if (u.docChanged) onChangeRef.current(u.state.doc.toString());
+          // The status bar follows whichever note has the caret.
+          if (u.view.hasFocus && (u.selectionSet || u.docChanged || u.focusChanged)) {
+            S.setCaret({ docId, ...caretInfo(u.state) });
+          }
         }),
         EditorView.domEventHandlers({
           mousedown(event) {
@@ -225,9 +292,16 @@ export default function MarkdownEditor({
 
   useEffect(() => {
     view.current?.dispatch({
-      effects: preview.current.reconfigure(livePreviewOn ? livePreview : []),
+      effects: [
+        preview.current.reconfigure(livePreviewOn ? livePreview : []),
+        sourceComp.current.reconfigure(livePreviewOn ? [] : sourceMode),
+      ],
     });
   }, [livePreviewOn]);
+
+  useEffect(() => {
+    view.current?.dispatch({ effects: minimapComp.current.reconfigure(minimapOn ? minimap : []) });
+  }, [minimapOn]);
 
   // Saving a note for the first time gives it a path; images resolve from then on.
   useEffect(() => {

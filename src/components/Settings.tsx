@@ -147,6 +147,33 @@ export default function Settings({ ws, onClose }: { ws: Workspace; onClose: () =
               </p>
             </div>
 
+            <div className="setting">
+              <div className="setting-head">
+                <label>Minimap</label>
+              </div>
+              <div className="font-choice">
+                {(
+                  [
+                    [true, 'Show'],
+                    [false, 'Hide'],
+                  ] as const
+                ).map(([value, name]) => (
+                  <button
+                    key={name}
+                    type="button"
+                    className={`font-option${s.minimap === value ? ' on' : ''}`}
+                    onClick={() => S.setSetting('minimap', value)}
+                  >
+                    <span className="font-name">{name}</span>
+                  </button>
+                ))}
+              </div>
+              <p className="setting-hint">
+                The whole note in miniature down the right edge of the editor — click to jump,
+                drag to scroll. Also “View: Toggle Minimap” in the command palette.
+              </p>
+            </div>
+
             {num('tableFontSize', 'Table font size', 'Rows in the tree / property table.')}
             {num('chromeFontSize', 'Interface font size', 'Sidebar, tabs and the status bar.')}
             {num(

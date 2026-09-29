@@ -147,6 +147,7 @@ export default function NoteDocView({
         docId={doc.id}
         value={doc.content}
         livePreviewOn={doc.mdMode === 'live'}
+        minimapOn={ws.settings.minimap}
         theme={ws.theme}
         path={doc.path}
         onChange={(next) => S.setNoteContent(doc.id, next)}

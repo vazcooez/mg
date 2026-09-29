@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { baseName, dirName, VaultFile, Workspace } from '../types';
+import { baseName, DEFAULT_SETTINGS, dirName, VaultFile, Workspace } from '../types';
 import * as S from '../store';
 import ContextMenu, { MenuState } from './ContextMenu';
 import Prompt, { PromptState } from './Prompt';
@@ -38,6 +38,35 @@ function buildTree(ws: Workspace): TreeNode {
   };
   sort(root);
   return root;
+}
+
+/**
+ * The sidebar's right edge. Dragging sets the width live; it is a setting, so
+ * it survives restarts and follows *Reset all settings*. Double-click resets.
+ */
+function SidebarResizer({ width }: { width: number }) {
+  return (
+    <div
+      className="sidebar-resizer"
+      title="Drag to resize · double-click to reset"
+      onDoubleClick={() => S.setSetting('sidebarWidth', DEFAULT_SETTINGS.sidebarWidth)}
+      onPointerDown={(e) => {
+        if (e.button !== 0) return;
+        e.preventDefault();
+        const startX = e.clientX;
+        const move = (ev: PointerEvent) =>
+          S.setSetting('sidebarWidth', Math.round(width + ev.clientX - startX));
+        const up = () => {
+          window.removeEventListener('pointermove', move);
+          window.removeEventListener('pointerup', up);
+          document.body.classList.remove('resizing');
+        };
+        document.body.classList.add('resizing');
+        window.addEventListener('pointermove', move);
+        window.addEventListener('pointerup', up);
+      }}
+    />
+  );
 }
 
 export default function Sidebar({ ws, onFlash }: { ws: Workspace; onFlash: (m: string) => void }) {
@@ -351,12 +380,14 @@ export default function Sidebar({ ws, onFlash }: { ws: Workspace; onFlash: (m: s
       <aside className="sidebar">
         {panelTabs}
         <VaultSearch ws={ws} />
+        <SidebarResizer width={ws.settings.sidebarWidth} />
       </aside>
     );
   }
 
   return (
     <aside className="sidebar">
+      <SidebarResizer width={ws.settings.sidebarWidth} />
       {panelTabs}
       <div className="sidebar-head">
         <span className="sidebar-title" title={ws.vaultPath}>

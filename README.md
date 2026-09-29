@@ -15,8 +15,8 @@ redistributable.
 
 | File | |
 |---|---|
-| `MG-Setup-1.9.0.exe` | Installer (~75 MB). Per-user, no admin rights, lets you choose the folder, creates Start Menu and desktop shortcuts, uninstalls from Add/Remove Programs. |
-| `MG-1.9.0-portable.exe` | Single file (~75 MB). Copy it anywhere — USB stick, network share — and double-click. Installs nothing. |
+| `MG-Setup-1.10.0.exe` | Installer (~75 MB). Per-user, no admin rights, lets you choose the folder, creates Start Menu and desktop shortcuts, uninstalls from Add/Remove Programs. |
+| `MG-1.10.0-portable.exe` | Single file (~75 MB). Copy it anywhere — USB stick, network share — and double-click. Installs nothing. |
 
 Requires 64-bit Windows 10 (1809 or newer) or Windows 11.
 
@@ -43,13 +43,13 @@ npm run typecheck
 
 ### Releasing
 
-Bump the version, write the notes at `docs/releases/v1.10.0.md`, and merge. Then either:
+Bump the version, write the notes at `docs/releases/v1.11.0.md`, and merge. Then either:
 
 - **Actions → Release → Run workflow**, with *Publish a release* ticked. The version is
   read from `package.json` and the tag is created for you, so cutting a release needs no
   local git at all.
 - **Push a `v*` tag**, if you would rather drive it from a terminal:
-  `npm version 1.10.0 && git push && git push --tags`
+  `npm version 1.11.0 && git push && git push --tags`
 
 Either way a Windows runner builds both installers and publishes the release with them
 attached and your notes as the body.
@@ -101,7 +101,8 @@ folder. Hovering a closed folder mid-drag opens it, and a folder refuses to be d
 inside itself. Files are written atomically (temp file, then rename), so a crash mid-save
 cannot truncate a note.
 
-Folders start **collapsed**, and the collapse button at the top of the sidebar folds
+Drag the sidebar's right edge to make it wider or narrower; the width is remembered,
+and double-clicking the edge puts it back. Folders start **collapsed**, and the collapse button at the top of the sidebar folds
 every open folder back up in one click. Opening a file from elsewhere — Goto
 Anything, a wikilink, a search result — opens the folders it lives in so its row is
 on screen. Typing in the filter box shows every matching file, whichever folder it is
@@ -183,7 +184,8 @@ Sublime's model: editor **groups**, each with its own tab strip.
 
 | | |
 |---|---|
-| `Ctrl+P` | Goto Anything — fuzzy search over open buffers *and* every vault file |
+| `Ctrl+P` | Goto Anything — fuzzy search over open buffers *and* every vault file; `:42` goes to a line, `@name` to a heading |
+| `Ctrl+G` / `Ctrl+R` | Goto Line / Goto Heading in the current note — Goto Anything, opened on `:` or `@` |
 | `Ctrl+Shift+P` | Command palette |
 | `Ctrl+Shift+F` | Find in Vault |
 | `Alt+Shift+1/2/3/5/8/9` | Layout: single, 2 cols, 3 cols, grid 4, 2 rows, 3 rows |
@@ -352,7 +354,7 @@ Plain `.md` files. Four modes:
 | Mode | |
 |---|---|
 | **Live** (`Ctrl+Alt+4`) | Obsidian-style live preview — everything renders; only the block holding the caret shows raw markdown |
-| **Source** (`Ctrl+Alt+5`) | Raw markdown |
+| **Source** (`Ctrl+Alt+5`) | Raw markdown, with line numbers — the note as a text editor sees it |
 | **Split** (`Ctrl+Alt+6`) | Source and preview side by side |
 | **Plain text** (`Ctrl+Alt+3`) | No markdown at all |
 
@@ -381,6 +383,38 @@ A long item wraps under its own text rather than back under the bullet — bulle
 numbers and task boxes alike — so a wrapped item still reads as one item. A `---`
 rule is drawn through the middle of its line, and shows its dashes again while the
 caret is on it.
+
+### Editing, the Sublime way
+
+The note editor has **multiple cursors**, and the keys to drive them:
+
+| | |
+|---|---|
+| `Ctrl+D` | Select the word, then add its next occurrence as another selection |
+| `Alt+F3` | Select every occurrence at once |
+| `Ctrl+Click`, `Alt+drag` | Add a cursor; drag out a column selection |
+| `Ctrl+Alt+↑` / `Ctrl+Alt+↓` | Add a cursor on the line above / below |
+| `Ctrl+Shift+L` | Split a selection into one cursor per line |
+| `Escape` | Back to a single cursor |
+| `Ctrl+L` | Select the line; repeat to extend |
+| `Ctrl+Shift+D` | Duplicate the line — or the selection |
+| `Ctrl+Shift+K` | Delete the line |
+| `Ctrl+Shift+↑` / `Ctrl+Shift+↓` | Move the line up / down |
+| `Ctrl+Enter` / `Ctrl+Shift+Enter` | New line below / above, whatever the caret's position |
+| `Ctrl+J` | Join the line below onto this one |
+| `Ctrl+/` | Toggle a comment |
+
+Brackets and quotes close themselves and matching brackets are outlined. The status
+bar shows where you are the way Sublime words it — *Line 12, Column 5*, *24
+characters selected*, *3 selection regions*.
+
+Notes are coloured with **Mariana**, Sublime Text's default scheme — headings blue,
+bold orange, italics violet, code green, links teal — in live preview, Source and
+the rendered view alike, with a light-theme set darkened to read on white.
+
+The **minimap** down the right edge shows the whole note in miniature, headings and
+code picked out in their colours, with the part on screen outlined. Click to jump,
+drag to scroll. *Settings → Minimap* or "View: Hide Minimap" turns it off.
 
 ### Find and replace
 
@@ -454,6 +488,7 @@ unsaved.
 |---|---|
 | **Editor font size** | Note editors and rendered markdown. Also in the command palette. |
 | **Editor typeface** | Monospace (Consolas, the default), sans or serif — applies to the editor *and* the rendered preview, so serif gives you a reading mode. Code blocks stay monospace regardless. |
+| **Minimap** | Show or hide the overview down the right edge of notes. |
 | **Note width** | *Readable* keeps notes in a centred column of comfortable line length; *Full width* lets them use the whole pane. Also "View: Full-Width Notes" in the command palette. |
 | **Table font size** | Row density in the tree / property table. |
 | **Interface font size** | Sidebar, tabs and status bar. |

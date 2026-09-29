@@ -58,29 +58,64 @@ function Highlight({ text, hits }: { text: string; hits: number[] }) {
   );
 }
 
+/** Fuzzy-filters entries, best first; an empty query keeps them all, in order. */
+function rank(entries: PaletteEntry[], q: string): Scored[] {
+  if (!q) return entries.map((entry) => ({ entry, score: 0, hits: [] }));
+  const out: Scored[] = [];
+  for (const entry of entries) {
+    const m = fuzzy(q, entry.label);
+    if (m) out.push({ entry, score: m.score, hits: m.hits });
+  }
+  return out.sort((a, b) => b.score - a.score);
+}
+
 export default function Palette({
   mode,
   entries,
+  initialQuery = '',
+  headings = [],
+  gotoLine,
   onClose,
 }: {
   mode: 'goto' | 'command';
   entries: PaletteEntry[];
+  /** Ctrl+G and Ctrl+R open Goto Anything already typed as `:` or `@`. */
+  initialQuery?: string;
+  /** The active note's headings, for `@` — Sublime's Goto Symbol. */
+  headings?: PaletteEntry[];
+  /** Jumps the active note to a line, for `:` — Sublime's Goto Line. */
+  gotoLine?: (line: number) => void;
   onClose: () => void;
 }) {
-  const [query, setQuery] = useState('');
+  const [query, setQuery] = useState(initialQuery);
   const [sel, setSel] = useState(0);
   const listRef = useRef<HTMLDivElement>(null);
 
+  // Goto Anything's operators, as in Sublime: `:42` goes to a line, `@name`
+  // to a heading. Anything else is a document name.
+  const operator = mode === 'goto' ? query.trimStart()[0] : undefined;
+  const empty =
+    operator === ':'
+      ? gotoLine
+        ? 'Type a line number'
+        : 'Goto Line works in a note'
+      : operator === '@'
+        ? headings.length
+          ? 'No matching heading'
+          : 'This document has no headings'
+        : 'No matches';
+
   const results = useMemo<Scored[]>(() => {
     const q = query.trim();
-    if (!q) return entries.map((entry) => ({ entry, score: 0, hits: [] }));
-    const out: Scored[] = [];
-    for (const entry of entries) {
-      const m = fuzzy(q, entry.label);
-      if (m) out.push({ entry, score: m.score, hits: m.hits });
+    if (mode === 'goto' && q.startsWith(':')) {
+      const n = parseInt(q.slice(1), 10);
+      if (!gotoLine || !Number.isFinite(n) || n < 1) return [];
+      const entry = { id: 'line', label: `Go to line ${n}`, run: () => gotoLine(n) };
+      return [{ entry, score: 0, hits: [] }];
     }
-    return out.sort((a, b) => b.score - a.score);
-  }, [entries, query]);
+    if (mode === 'goto' && q.startsWith('@')) return rank(headings, q.slice(1).trim());
+    return rank(entries, q);
+  }, [entries, headings, gotoLine, mode, query]);
 
   useEffect(() => setSel(0), [query]);
 
@@ -105,7 +140,16 @@ export default function Palette({
           autoFocus
           spellCheck={false}
           value={query}
-          placeholder={mode === 'goto' ? 'Goto Anything — type a document name' : 'Type a command…'}
+          placeholder={
+            mode === 'goto'
+              ? 'Goto Anything — a document name, :line, or @heading'
+              : 'Type a command…'
+          }
+          onFocus={(e) => {
+            // With `:` or `@` typed in advance, the caret goes after it.
+            const end = e.currentTarget.value.length;
+            e.currentTarget.setSelectionRange(end, end);
+          }}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === 'ArrowDown') {
@@ -124,7 +168,7 @@ export default function Palette({
           }}
         />
         <div className="palette-list" ref={listRef}>
-          {results.length === 0 && <div className="palette-empty">No matches</div>}
+          {results.length === 0 && <div className="palette-empty">{empty}</div>}
           {results.slice(0, 80).map((r, i) => (
             <div
               key={r.entry.id}

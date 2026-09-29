@@ -5,6 +5,18 @@ export default function StatusBar({ ws }: { ws: Workspace }) {
   const pane = S.activePane(ws);
   const doc = S.findDoc(ws, pane.activeTabId);
   const dirtyCount = S.dirtyDocs(ws).length;
+  const caret = S.useCaret();
+
+  // Sublime's wording: "Line 12, Column 5", or what is selected.
+  let position = '';
+  if (caret && doc?.type === 'note' && doc.view === 'markdown' && caret.docId === doc.id) {
+    position =
+      caret.selections > 1
+        ? `${caret.selections} selection regions`
+        : caret.selected
+          ? `${caret.selected} character${caret.selected === 1 ? '' : 's'} selected`
+          : `Line ${caret.line}, Column ${caret.col}`;
+  }
 
   let info = 'No document';
   let viewName = '';
@@ -48,6 +60,7 @@ export default function StatusBar({ ws }: { ws: Workspace }) {
       <span className="status-cell path" title={ws.vaultPath}>
         {where}
       </span>
+      {position && <span className="status-cell">{position}</span>}
       {doc && S.isDirty(doc) && (
         <button
           type="button"

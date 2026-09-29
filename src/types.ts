@@ -468,12 +468,16 @@ export interface Settings {
   chromeFontSize: number;
   /** Notes keep a readable column, or use the whole width of the pane. */
   noteWidth: NoteWidth;
+  /** Sublime's miniature overview of the note, down its right edge. */
+  minimap: boolean;
+  /** Width of the sidebar in px, set by dragging its edge. */
+  sidebarWidth: number;
 }
 
 export type NoteWidth = 'readable' | 'full';
 
-/** The settings that are a number on a slider. */
-export type NumericSetting = Exclude<keyof Settings, 'editorFont' | 'noteWidth'>;
+/** The settings that are a number. */
+export type NumericSetting = Exclude<keyof Settings, 'editorFont' | 'noteWidth' | 'minimap'>;
 
 export const DEFAULT_SETTINGS: Settings = {
   uiScale: 1,
@@ -482,6 +486,8 @@ export const DEFAULT_SETTINGS: Settings = {
   tableFontSize: 12,
   chromeFontSize: 12,
   noteWidth: 'readable',
+  minimap: true,
+  sidebarWidth: 246,
 };
 
 export const EDITOR_FONT_STACKS: Record<EditorFont, string> = {
@@ -502,6 +508,7 @@ export const SETTING_BOUNDS: Record<NumericSetting, [number, number]> = {
   editorFontSize: [10, 28],
   tableFontSize: [9, 20],
   chromeFontSize: [9, 18],
+  sidebarWidth: [160, 560],
 };
 
 export interface VaultFile {

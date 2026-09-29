@@ -6,6 +6,7 @@ import Palette, { PaletteEntry } from './components/Palette';
 import SettingsPanel from './components/Settings';
 import { baseName, EDITOR_FONT_STACKS, LAYOUTS, LayoutKind } from './types';
 import * as S from './store';
+import { extractHeadings } from './markdown';
 
 type PaletteMode = 'goto' | 'command' | null;
 
@@ -19,6 +20,8 @@ function isEditable(el: EventTarget | null): boolean {
 export default function App() {
   const ws = S.useWorkspace();
   const [palette, setPalette] = useState<PaletteMode>(null);
+  /** What Goto Anything opens with: `:` for Ctrl+G, `@` for Ctrl+R. */
+  const [paletteQuery, setPaletteQuery] = useState('');
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   // Sublime chord support: Ctrl+K arms a prefix consumed by the next keystroke.
@@ -43,6 +46,7 @@ export default function App() {
     root.setProperty('--table-font-size', `${s.tableFontSize}px`);
     root.setProperty('--chrome-font-size', `${s.chromeFontSize}px`);
     root.setProperty('--note-max-width', s.noteWidth === 'full' ? 'none' : '46rem');
+    root.setProperty('--sidebar-width', `${s.sidebarWidth}px`);
     void window.api?.setUiScale(s.uiScale);
   }, [ws.settings]);
 
@@ -146,7 +150,19 @@ export default function App() {
           void S.flushSession();
           break;
         case 'goto-anything':
+          setPaletteQuery('');
           setPalette('goto');
+          break;
+        case 'goto-line':
+          setPaletteQuery(':');
+          setPalette('goto');
+          break;
+        case 'goto-symbol':
+          setPaletteQuery('@');
+          setPalette('goto');
+          break;
+        case 'toggle-minimap':
+          S.setSetting('minimap', !ws.settings.minimap);
           break;
         case 'command-palette':
           setPalette('command');
@@ -351,6 +367,7 @@ export default function App() {
       }
       if (ctrl && !e.shiftKey && e.key.toLowerCase() === 'p') {
         e.preventDefault();
+        setPaletteQuery('');
         setPalette('goto');
         return;
       }
@@ -398,6 +415,36 @@ export default function App() {
     }
     return entries;
   }, [ws.docs, ws.files, pane.id]);
+
+  /**
+   * Places in the active note, for Goto Anything's `:` and `@`. A note shown
+   * only as rendered preview has no caret to move, so it switches to Live.
+   */
+  const showInNote = useCallback((docId: string, line: number) => {
+    const doc = S.findDoc(S.getWorkspace(), docId);
+    if (doc?.type === 'note' && doc.view === 'markdown' && doc.mdMode === 'preview') {
+      S.setMdMode(docId, 'live');
+    }
+    S.revealInDoc(docId, { line, ch: 0, length: 0 });
+  }, []);
+
+  const gotoLine = useMemo(
+    () =>
+      activeDoc?.type === 'note'
+        ? (line: number) => showInNote(activeDoc.id, line)
+        : undefined,
+    [activeDoc?.id, activeDoc?.type, showInNote]
+  );
+
+  const headingEntries = useMemo<PaletteEntry[]>(() => {
+    if (activeDoc?.type !== 'note') return [];
+    return extractHeadings(activeDoc.content).map((h, i) => ({
+      id: `h:${i}`,
+      label: h.text,
+      detail: `H${h.level} · line ${h.line + 1}`,
+      run: () => showInNote(activeDoc.id, h.line + 1),
+    }));
+  }, [activeDoc, showInNote]);
 
   const commandEntries = useMemo<PaletteEntry[]>(() => {
     const list: PaletteEntry[] = [
@@ -465,6 +512,18 @@ export default function App() {
         label: 'Search: Find in Vault',
         detail: 'Ctrl+Shift+F',
         run: () => S.showVaultSearch(),
+      },
+      { id: 'c:goto-line', label: 'Goto: Line…', detail: 'Ctrl+G', run: () => runMenu('goto-line') },
+      {
+        id: 'c:goto-symbol',
+        label: 'Goto: Heading…',
+        detail: 'Ctrl+R',
+        run: () => runMenu('goto-symbol'),
+      },
+      {
+        id: 'c:minimap',
+        label: `View: ${ws.settings.minimap ? 'Hide' : 'Show'} Minimap`,
+        run: () => runMenu('toggle-minimap'),
       },
       {
         id: 'c:split-right',
@@ -561,8 +620,13 @@ export default function App() {
       <StatusBar ws={ws} />
       {palette && (
         <Palette
+          // Ctrl+G while Goto Anything is open starts it again as `:`.
+          key={`${palette}${paletteQuery}`}
           mode={palette}
           entries={palette === 'goto' ? gotoEntries : commandEntries}
+          initialQuery={palette === 'goto' ? paletteQuery : ''}
+          headings={headingEntries}
+          gotoLine={gotoLine}
           onClose={() => setPalette(null)}
         />
       )}

@@ -297,6 +297,8 @@ function buildMenu() {
           accelerator: 'CmdOrCtrl+Shift+P',
           click: () => send('menu', 'command-palette'),
         },
+        { label: 'Goto Line…', accelerator: 'CmdOrCtrl+G', click: () => send('menu', 'goto-line') },
+        { label: 'Goto Heading…', accelerator: 'CmdOrCtrl+R', click: () => send('menu', 'goto-symbol') },
         { type: 'separator' },
         { label: 'Next Tab', accelerator: 'CmdOrCtrl+PageDown', click: () => send('menu', 'next-tab') },
         { label: 'Next Tab (Ctrl+Tab)', accelerator: 'Control+Tab', click: () => send('menu', 'next-tab') },
@@ -371,11 +373,10 @@ function buildMenu() {
           ],
         },
         { type: 'separator' },
-        {
-          label: 'Toggle Theme',
-          accelerator: 'CmdOrCtrl+Shift+D',
-          click: () => send('menu', 'toggle-theme'),
-        },
+        // Ctrl+Shift+D is Sublime's Duplicate Line, so the theme keeps only
+        // its Ctrl+K Ctrl+T chord.
+        { label: 'Toggle Theme', click: () => send('menu', 'toggle-theme') },
+        { label: 'Toggle Minimap', click: () => send('menu', 'toggle-minimap') },
         {
           label: 'Settings…',
           accelerator: 'CmdOrCtrl+,',
@@ -398,7 +399,8 @@ function buildMenu() {
           click: () => send('menu', 'font-smaller'),
         },
         { type: 'separator' },
-        { role: 'reload' },
+        // Ctrl+R is Goto Heading, as in Sublime; reloading the window moves off it.
+        { role: 'reload', accelerator: 'CmdOrCtrl+Alt+R' },
         { role: 'forceReload' },
         { role: 'toggleDevTools' },
         { type: 'separator' },

@@ -1601,7 +1601,7 @@ export function toggleTheme() {
 
 export function setSetting<K extends keyof Settings>(key: K, value: Settings[K]) {
   const next = { ...state.settings, [key]: value } as Settings;
-  if (key !== 'editorFont' && key !== 'noteWidth') {
+  if (typeof value === 'number') {
     const bounds = SETTING_BOUNDS[key as keyof typeof SETTING_BOUNDS];
     if (bounds) {
       (next[key] as number) = clamp(Number(value), bounds[0], bounds[1]);
@@ -1644,6 +1644,7 @@ function readSettings(raw: Partial<Settings> | undefined): Settings {
   }
   if (!EDITOR_FONT_STACKS[out.editorFont]) out.editorFont = DEFAULT_SETTINGS.editorFont;
   if (out.noteWidth !== 'full') out.noteWidth = 'readable';
+  if (typeof out.minimap !== 'boolean') out.minimap = DEFAULT_SETTINGS.minimap;
   return out;
 }
 
@@ -2793,6 +2794,50 @@ export function takeReveal(docId: string): RevealTarget | null {
 export function onReveal(listener: (docId: string) => void): () => void {
   revealListeners.add(listener);
   return () => revealListeners.delete(listener);
+}
+
+/* ----------------------------------------------------------- caret info */
+
+/** Where the caret is in the focused note, for the status bar. */
+export interface CaretInfo {
+  docId: string;
+  line: number;
+  col: number;
+  selections: number;
+  /** Characters selected, across every selection. */
+  selected: number;
+}
+
+/**
+ * Kept outside the workspace: it changes on every keystroke and every click,
+ * and neither undo, the session nor any document has any business with it.
+ */
+let caret: CaretInfo | null = null;
+const caretListeners = new Set<() => void>();
+
+export function setCaret(info: CaretInfo) {
+  const c = caret;
+  if (
+    c &&
+    c.docId === info.docId &&
+    c.line === info.line &&
+    c.col === info.col &&
+    c.selections === info.selections &&
+    c.selected === info.selected
+  )
+    return;
+  caret = info;
+  for (const l of caretListeners) l();
+}
+
+export function useCaret(): CaretInfo | null {
+  return useSyncExternalStore(
+    (l) => {
+      caretListeners.add(l);
+      return () => caretListeners.delete(l);
+    },
+    () => caret
+  );
 }
 
 /* --------------------------------------------------------------- lookups */
