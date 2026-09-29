@@ -424,14 +424,32 @@ export function paneCount(kind: LayoutKind): number {
   return spec.cols * spec.rows;
 }
 
+/** How a split arranges its children: side by side, or stacked. */
+export type SplitDir = 'row' | 'column';
+
+/** A side of a group, where a dragged tab can open a new group. */
+export type SplitSide = 'left' | 'right' | 'top' | 'bottom';
+
+/**
+ * The shape of the editor area, as VS Code models it: a tree of splits whose
+ * leaves are groups. Directions alternate down the tree — a split never has a
+ * child split running the same way, because that child is folded into it.
+ */
+export type LayoutNode =
+  | { type: 'pane'; paneId: string }
+  | {
+      type: 'split';
+      dir: SplitDir;
+      children: LayoutNode[];
+      /** Fractions of the split's length, one per child, summing to 1. */
+      sizes: number[];
+    };
+
 export interface Layout {
-  kind: LayoutKind;
+  /** Every group, in reading order of the tree — the N in "Group N". */
   panes: Pane[];
   activePaneId: string;
-  /** Fractional column widths, length === LAYOUTS[kind].cols. */
-  colSizes: number[];
-  /** Fractional row heights, length === LAYOUTS[kind].rows. */
-  rowSizes: number[];
+  root: LayoutNode;
 }
 
 /* -------------------------------------------------------------- settings */
@@ -448,7 +466,14 @@ export interface Settings {
   tableFontSize: number;
   /** Sidebar and tab strip, in px. */
   chromeFontSize: number;
+  /** Notes keep a readable column, or use the whole width of the pane. */
+  noteWidth: NoteWidth;
 }
+
+export type NoteWidth = 'readable' | 'full';
+
+/** The settings that are a number on a slider. */
+export type NumericSetting = Exclude<keyof Settings, 'editorFont' | 'noteWidth'>;
 
 export const DEFAULT_SETTINGS: Settings = {
   uiScale: 1,
@@ -456,10 +481,11 @@ export const DEFAULT_SETTINGS: Settings = {
   editorFont: 'mono',
   tableFontSize: 12,
   chromeFontSize: 12,
+  noteWidth: 'readable',
 };
 
 export const EDITOR_FONT_STACKS: Record<EditorFont, string> = {
-  mono: "'Cascadia Mono', 'Consolas', 'JetBrains Mono', ui-monospace, monospace",
+  mono: "'Consolas', 'Cascadia Mono', 'JetBrains Mono', ui-monospace, monospace",
   sans: "'Segoe UI', 'Inter', system-ui, sans-serif",
   serif: "'Georgia', 'Iowan Old Style', 'Times New Roman', serif",
 };
@@ -471,7 +497,7 @@ export const EDITOR_FONT_LABEL: Record<EditorFont, string> = {
 };
 
 /** Keeps a setting inside its supported range. */
-export const SETTING_BOUNDS: Record<keyof Omit<Settings, 'editorFont'>, [number, number]> = {
+export const SETTING_BOUNDS: Record<NumericSetting, [number, number]> = {
   uiScale: [0.6, 2],
   editorFontSize: [10, 28],
   tableFontSize: [9, 20],
@@ -490,6 +516,8 @@ export interface VaultDir {
   name: string;
 }
 
+export type SidebarPanel = 'files' | 'search';
+
 export interface Workspace {
   version: number;
   /** Open buffers. A file in the vault is only here once it has been opened. */
@@ -497,6 +525,8 @@ export interface Workspace {
   layout: Layout;
   theme: 'dark' | 'light';
   sidebarVisible: boolean;
+  /** What the sidebar shows. Not remembered: it always opens on the files. */
+  sidebarPanel: SidebarPanel;
   settings: Settings;
   /** Absolute path of the vault folder on disk. */
   vaultPath: string;

@@ -1,4 +1,4 @@
-import { LAYOUTS, Workspace } from '../types';
+import { Workspace } from '../types';
 import * as S from '../store';
 
 export default function StatusBar({ ws }: { ws: Workspace }) {
@@ -77,7 +77,7 @@ export default function StatusBar({ ws }: { ws: Workspace }) {
       <span className="status-cell dim">
         Group {ws.layout.panes.indexOf(pane) + 1}/{ws.layout.panes.length}
       </span>
-      <span className="status-cell dim">{LAYOUTS[ws.layout.kind].label}</span>
+      <span className="status-cell dim">{S.layoutLabel(ws.layout)}</span>
       {viewName && <span className="status-cell">{viewName}</span>}
       <button
         type="button"

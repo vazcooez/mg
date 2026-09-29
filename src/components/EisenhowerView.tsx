@@ -226,7 +226,7 @@ export default function EisenhowerView({ doc, selectedId, onSelect }: Props) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (!selectedId || editingId) return;
-      // Chords belong to the app and the menu: Ctrl+- is "smaller font", not
+      // Chords belong to the app and the menu: Ctrl+- is "zoom out", not
       // "shrink this card". Bare keys only.
       if (e.ctrlKey || e.metaKey || e.altKey) return;
       const el = document.activeElement;

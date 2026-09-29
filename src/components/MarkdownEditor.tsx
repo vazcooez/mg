@@ -15,6 +15,8 @@ import { searchKeymap } from '@codemirror/search';
 import { tags } from '@lezer/highlight';
 import { livePreview, notePath } from '../editor/livePreview';
 import { noteFolding } from '../editor/folding';
+import { findPanel, openReplacePanel } from '../editor/searchPanel';
+import * as S from '../store';
 
 /**
  * A real text editor for notes, built on CodeMirror.
@@ -56,10 +58,11 @@ function buildTheme(dark: boolean) {
         padding: '18px 0 40vh',
       },
       '.cm-content': {
-        maxWidth: '46rem',
         margin: '0 auto',
         padding: '0 28px',
         caretColor: 'var(--text)',
+        // Readable width by default; Settings can let a note use the whole pane.
+        maxWidth: 'var(--note-max-width)',
       },
       '.cm-line': { padding: '0 2px' },
       '&.cm-focused': { outline: 'none' },
@@ -75,6 +78,7 @@ function buildTheme(dark: boolean) {
       '.cm-cursor, .cm-dropCursor': { borderLeftColor: 'var(--text)', borderLeftWidth: '2px' },
       '.cm-gutters': { display: 'none' },
       '.cm-panels': { backgroundColor: 'var(--chrome)', color: 'var(--text)' },
+      '.cm-panels-top': { borderBottom: '1px solid var(--line)' },
       '.cm-searchMatch': {
         backgroundColor: 'color-mix(in srgb, var(--warn) 35%, transparent)',
       },
@@ -87,6 +91,7 @@ function buildTheme(dark: boolean) {
 }
 
 export default function MarkdownEditor({
+  docId,
   value,
   livePreviewOn,
   theme,
@@ -94,6 +99,8 @@ export default function MarkdownEditor({
   onChange,
   onOpenLink,
 }: {
+  /** The buffer being edited, so a jump to a line can find this editor. */
+  docId: string;
   value: string;
   livePreviewOn: boolean;
   theme: 'dark' | 'light';
@@ -130,12 +137,14 @@ export default function MarkdownEditor({
         // Folding is an editing feature, not a rendering one, so it is outside
         // the live-preview compartment: sections collapse in Source mode too.
         noteFolding,
+        findPanel,
         pathComp.current.of(notePath.of(path)),
         preview.current.of(livePreviewOn ? livePreview : []),
         keymap.of([
           // Enter continues lists and quotes; Tab indents them.
           { key: 'Enter', run: insertNewlineContinueMarkup },
           { key: 'Tab', run: indentMore, shift: indentLess },
+          { key: 'Mod-h', run: openReplacePanel, preventDefault: true },
           ...standardKeymap,
           ...defaultKeymap,
           ...historyKeymap,
@@ -169,7 +178,31 @@ export default function MarkdownEditor({
 
     const v = new EditorView({ state, parent: host.current });
     view.current = v;
+
+    // Search results and the outline ask for a line; the request may arrive
+    // before this editor exists (the file was still opening), so it is also
+    // collected once on mount.
+    const reveal = () => {
+      const target = S.takeReveal(docId);
+      if (!target) return;
+      const { doc } = v.state;
+      const line = doc.line(Math.min(Math.max(1, target.line), doc.lines));
+      const anchor = Math.min(line.from + target.ch, line.to);
+      const head = Math.min(anchor + target.length, line.to);
+      v.dispatch({
+        selection: { anchor, head },
+        effects: EditorView.scrollIntoView(anchor, { y: 'center' }),
+      });
+      v.focus();
+    };
+    const frame = requestAnimationFrame(reveal);
+    const unsubscribe = S.onReveal((id) => {
+      if (id === docId) reveal();
+    });
+
     return () => {
+      cancelAnimationFrame(frame);
+      unsubscribe();
       v.destroy();
       view.current = null;
     };

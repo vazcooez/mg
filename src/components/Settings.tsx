@@ -3,8 +3,8 @@ import {
   DEFAULT_SETTINGS,
   EDITOR_FONT_LABEL,
   EditorFont,
+  NumericSetting,
   SETTING_BOUNDS,
-  Settings as SettingsShape,
   Workspace,
 } from '../types';
 import * as S from '../store';
@@ -42,7 +42,7 @@ export default function Settings({ ws, onClose }: { ws: Workspace; onClose: () =
   }, []);
 
   const num = (
-    key: keyof Omit<SettingsShape, 'editorFont'>,
+    key: NumericSetting,
     label: string,
     hint: string,
     step = 1,
@@ -117,6 +117,34 @@ export default function Settings({ ws, onClose }: { ws: Workspace; onClose: () =
                 ))}
               </div>
               <p className="setting-hint">Applies to note editors; the preview follows it too.</p>
+            </div>
+
+            <div className="setting">
+              <div className="setting-head">
+                <label>Note width</label>
+              </div>
+              <div className="font-choice">
+                {(
+                  [
+                    ['readable', 'Readable', 'A centred column'],
+                    ['full', 'Full width', 'Edge to edge'],
+                  ] as const
+                ).map(([value, name, sample]) => (
+                  <button
+                    key={value}
+                    type="button"
+                    className={`font-option${s.noteWidth === value ? ' on' : ''}`}
+                    onClick={() => S.setSetting('noteWidth', value)}
+                  >
+                    <span className="font-name">{name}</span>
+                    <span className="font-sample">{sample}</span>
+                  </button>
+                ))}
+              </div>
+              <p className="setting-hint">
+                Readable keeps lines to a comfortable length; full width uses the whole pane. The
+                command palette switches it too.
+              </p>
             </div>
 
             {num('tableFontSize', 'Table font size', 'Rows in the tree / property table.')}

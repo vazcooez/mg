@@ -280,6 +280,12 @@ function buildMenu() {
         { role: 'copy' },
         { role: 'paste' },
         { role: 'selectAll' },
+        { type: 'separator' },
+        {
+          label: 'Find in Vault…',
+          accelerator: 'CmdOrCtrl+Shift+F',
+          click: () => send('menu', 'find-in-vault'),
+        },
       ],
     },
     {
@@ -375,14 +381,20 @@ function buildMenu() {
           accelerator: 'CmdOrCtrl+,',
           click: () => send('menu', 'settings'),
         },
+        { type: 'separator' },
+        // Zoom scales the whole window, as it does in VS Code and a browser.
+        // Ctrl++ and the numpad keys are caught by the renderer, which knows
+        // the difference between them and these.
+        { label: 'Zoom In', accelerator: 'CmdOrCtrl+=', click: () => send('menu', 'zoom-in') },
+        { label: 'Zoom Out', accelerator: 'CmdOrCtrl+-', click: () => send('menu', 'zoom-out') },
+        { label: 'Reset Zoom', accelerator: 'CmdOrCtrl+0', click: () => send('menu', 'zoom-reset') },
+        { type: 'separator' },
         {
           label: 'Increase Editor Font Size',
-          accelerator: 'CmdOrCtrl+=',
           click: () => send('menu', 'font-bigger'),
         },
         {
           label: 'Decrease Editor Font Size',
-          accelerator: 'CmdOrCtrl+-',
           click: () => send('menu', 'font-smaller'),
         },
         { type: 'separator' },
@@ -390,8 +402,8 @@ function buildMenu() {
         { role: 'forceReload' },
         { role: 'toggleDevTools' },
         { type: 'separator' },
-        // Interface scale lives in Settings, so the built-in zoom roles are
-        // omitted here — their accelerators would collide with the font ones.
+        // The built-in zoom roles are left out: zoom is a setting, so it is
+        // remembered with the session, rather than Chromium's own zoom level.
         { role: 'togglefullscreen' },
       ],
     },

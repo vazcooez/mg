@@ -15,8 +15,8 @@ redistributable.
 
 | File | |
 |---|---|
-| `MG-Setup-1.8.0.exe` | Installer (~75 MB). Per-user, no admin rights, lets you choose the folder, creates Start Menu and desktop shortcuts, uninstalls from Add/Remove Programs. |
-| `MG-1.8.0-portable.exe` | Single file (~75 MB). Copy it anywhere — USB stick, network share — and double-click. Installs nothing. |
+| `MG-Setup-1.9.0.exe` | Installer (~75 MB). Per-user, no admin rights, lets you choose the folder, creates Start Menu and desktop shortcuts, uninstalls from Add/Remove Programs. |
+| `MG-1.9.0-portable.exe` | Single file (~75 MB). Copy it anywhere — USB stick, network share — and double-click. Installs nothing. |
 
 Requires 64-bit Windows 10 (1809 or newer) or Windows 11.
 
@@ -43,13 +43,13 @@ npm run typecheck
 
 ### Releasing
 
-Bump the version, write the notes at `docs/releases/v1.9.0.md`, and merge. Then either:
+Bump the version, write the notes at `docs/releases/v1.10.0.md`, and merge. Then either:
 
 - **Actions → Release → Run workflow**, with *Publish a release* ticked. The version is
   read from `package.json` and the tag is created for you, so cutting a release needs no
   local git at all.
 - **Push a `v*` tag**, if you would rather drive it from a terminal:
-  `npm version 1.9.0 && git push && git push --tags`
+  `npm version 1.10.0 && git push && git push --tags`
 
 Either way a Windows runner builds both installers and publishes the release with them
 attached and your notes as the body.
@@ -100,6 +100,23 @@ not just its name row, so dropping onto anything nested inside a folder means th
 folder. Hovering a closed folder mid-drag opens it, and a folder refuses to be dropped
 inside itself. Files are written atomically (temp file, then rename), so a crash mid-save
 cannot truncate a note.
+
+Folders start **collapsed**, and the collapse button at the top of the sidebar folds
+every open folder back up in one click. Opening a file from elsewhere — Goto
+Anything, a wikilink, a search result — opens the folders it lives in so its row is
+on screen. Typing in the filter box shows every matching file, whichever folder it is
+in, and hides folders with nothing that matches.
+
+### Find in Vault
+
+`Ctrl+Shift+F` (or the sidebar's **Search** tab) searches every note, todo document
+and diagram at once, with the same *match case*, *whole word* and *regular
+expression* toggles as the find bar. Results are grouped by file with the match
+highlighted; clicking one opens the document and, in a note, selects the match.
+
+Open documents are searched as they are *now*, unsaved edits included. In todo
+documents and diagrams the search reads what you wrote — item titles, descriptions,
+assignees, property values, node text — not the JSON around it.
 
 Images in the vault (`.png`, `.jpg`, `.gif`, `.webp`, `.svg`, `.bmp`, `.avif`) open as
 their own read-only tab with fit-to-window and zoom.
@@ -168,18 +185,36 @@ Sublime's model: editor **groups**, each with its own tab strip.
 |---|---|
 | `Ctrl+P` | Goto Anything — fuzzy search over open buffers *and* every vault file |
 | `Ctrl+Shift+P` | Command palette |
+| `Ctrl+Shift+F` | Find in Vault |
 | `Alt+Shift+1/2/3/5/8/9` | Layout: single, 2 cols, 3 cols, grid 4, 2 rows, 3 rows |
+| `Ctrl+\` | Move the active tab into a new group on the right |
 | `Ctrl+1…9` | Focus group N |
-| `Ctrl+Shift+1…9` | Move the active tab to group N |
+| `Ctrl+Shift+1…9` | Move the active tab to group N — one past the last opens a new group |
 | `Alt+1…9` | Select tab N in the current group |
 | `Ctrl+PgUp` / `Ctrl+PgDn` | Previous / next tab |
 | `Ctrl+W`, `Ctrl+Shift+T` | Close tab, reopen closed tab |
+| `Ctrl+=` / `Ctrl+-` / `Ctrl+0` | Zoom in, zoom out, reset — the whole window; `Ctrl++` and the numpad keys work too |
 | `Ctrl+K Ctrl+B` | Toggle sidebar |
 | `Ctrl+K Ctrl+T` | Toggle dark/light theme |
 | `Ctrl+,` | Settings |
 
-Drag tabs to reorder them, or drag them into another group. Group dividers are
-draggable. Middle-click closes a tab.
+### Splitting by dragging
+
+Drag a tab onto another group — or onto its own — and a highlight shows where it
+will land. The middle of a group adds the tab to it; near an edge, the highlight
+takes that half, and dropping there opens a **new group on that side**. Drop on the
+right edge to split into columns, on the bottom edge to split into rows, and keep
+going: splits nest, so any arrangement VS Code can make, MG can make. Dragging onto a
+tab strip still places the tab at that exact spot. The tab's context menu has
+*Split Right* and *Split Down* for the same thing without the mouse.
+
+**Empty groups close themselves.** When a group loses its last tab — closed, or
+dragged somewhere else — it disappears and its neighbours take the space. The
+presets on `Alt+Shift+N` still lay out empty groups on purpose, for you to fill.
+
+Moving groups around never reloads them: an open note keeps its caret, scroll
+position and undo history through any rearrangement. Every divider is draggable.
+Middle-click closes a tab.
 
 ---
 
@@ -342,6 +377,19 @@ document itself keeps its markdown — switch to **Source** (`Ctrl+Alt+5`) and c
 there yields the raw form, marker and all. Nested items carry a vertical rule per
 ancestor level, so a run of children reads as one group.
 
+A long item wraps under its own text rather than back under the bullet — bullets,
+numbers and task boxes alike — so a wrapped item still reads as one item. A `---`
+rule is drawn through the middle of its line, and shows its dashes again while the
+caret is on it.
+
+### Find and replace
+
+`Ctrl+F` opens the find bar at the top of the note, `Ctrl+H` opens it with the
+replace row. The options sit inside the field — `Aa` match case, `ab` whole word,
+`.*` regular expression, or `Alt+C` / `Alt+W` / `Alt+R` — and the bar always shows
+where you are, as in "3 of 12". `Enter` and `Shift+Enter` step through the matches,
+`Alt+Enter` selects them all, and `Escape` closes it.
+
 ### Folding sections
 
 A heading owns everything below it up to the next heading of the same or higher rank,
@@ -404,11 +452,12 @@ unsaved.
 
 | | |
 |---|---|
-| **Editor font size** | Note editors and rendered markdown. `Ctrl+=` / `Ctrl+-` adjust it without opening the panel. |
-| **Editor typeface** | Monospace, sans or serif — applies to the editor *and* the rendered preview, so serif gives you a reading mode. Code blocks stay monospace regardless. |
+| **Editor font size** | Note editors and rendered markdown. Also in the command palette. |
+| **Editor typeface** | Monospace (Consolas, the default), sans or serif — applies to the editor *and* the rendered preview, so serif gives you a reading mode. Code blocks stay monospace regardless. |
+| **Note width** | *Readable* keeps notes in a centred column of comfortable line length; *Full width* lets them use the whole pane. Also "View: Full-Width Notes" in the command palette. |
 | **Table font size** | Row density in the tree / property table. |
 | **Interface font size** | Sidebar, tabs and status bar. |
-| **Interface scale** | Scales the whole window including layout, for when everything is just too small. |
+| **Interface scale** | Scales the whole window including layout, for when everything is just too small. `Ctrl+=` / `Ctrl+-` step it; `Ctrl+0` resets it. |
 | **Theme** | Dark or light. |
 | **Vault** | Shows the current folder; switch vaults or reveal it in Explorer. |
 

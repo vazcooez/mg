@@ -74,16 +74,36 @@ export default function NoteDocView({
     [doc.id, doc.content, openTarget]
   );
 
-  /** Jumps the textarea caret to a heading line and scrolls it into view. */
-  const gotoLine = (line: number) => {
-    const ta = editorRef.current;
-    if (!ta) return;
-    const pos = doc.content.split('\n').slice(0, line).join('\n').length + (line ? 1 : 0);
-    ta.focus();
-    ta.setSelectionRange(pos, pos);
-    const lineHeight = parseFloat(getComputedStyle(ta).lineHeight) || 20;
-    ta.scrollTop = Math.max(0, line * lineHeight - ta.clientHeight / 3);
-  };
+  /** Selects a place in the plain-text textarea and scrolls it into view. */
+  const revealInTextarea = useCallback(
+    (line: number, ch: number, length: number) => {
+      const ta = editorRef.current;
+      if (!ta) return;
+      const before = doc.content.split('\n').slice(0, line - 1).join('\n');
+      const pos = before.length + (line > 1 ? 1 : 0) + ch;
+      ta.focus();
+      ta.setSelectionRange(pos, pos + length);
+      const lineHeight = parseFloat(getComputedStyle(ta).lineHeight) || 20;
+      ta.scrollTop = Math.max(0, (line - 1) * lineHeight - ta.clientHeight / 3);
+    },
+    [doc.content]
+  );
+
+  // The markdown editor collects its own jump requests; the textarea needs help.
+  useEffect(() => {
+    if (doc.view !== 'plain') return;
+    const take = () => {
+      const target = S.takeReveal(doc.id);
+      if (target) revealInTextarea(target.line, target.ch, target.length);
+    };
+    take();
+    return S.onReveal((id) => {
+      if (id === doc.id) take();
+    });
+  }, [doc.id, doc.view, revealInTextarea]);
+
+  /** Jumps to a heading, `line` counted from 0 as the outline reports it. */
+  const gotoLine = (line: number) => S.revealInDoc(doc.id, { line: line + 1, ch: 0, length: 0 });
 
   /** Tab inserts two spaces; Ctrl+B / Ctrl+I wrap the selection. */
   const onEditorKey = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -124,6 +144,7 @@ export default function NoteDocView({
       />
     ) : (
       <MarkdownEditor
+        docId={doc.id}
         value={doc.content}
         livePreviewOn={doc.mdMode === 'live'}
         theme={ws.theme}

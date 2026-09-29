@@ -32,6 +32,7 @@ import {
   DocFile,
   Layout,
   LayoutKind,
+  LayoutNode,
   LAYOUTS,
   MatrixAxes,
   minColumnWidth,
@@ -43,6 +44,8 @@ import {
   NumberDisplay,
   Pane,
   paneCount,
+  SplitDir,
+  SplitSide,
   PROPERTY_TYPES,
   PropertyDef,
   PropertyType,
@@ -50,6 +53,7 @@ import {
   safeFileName,
   SETTING_BOUNDS,
   Settings,
+  SidebarPanel,
   SortSpec,
   TODO_EXT,
   TodoDoc,
@@ -760,14 +764,118 @@ function makePane(tabs: string[] = [], activeTabId: string | null = null): Pane 
 }
 
 function makeLayout(panes: Pane[] = [makePane()], kind: LayoutKind = 'single'): Layout {
-  const spec = LAYOUTS[kind];
   return {
-    kind,
     panes,
     activePaneId: panes[0].id,
-    colSizes: even(spec.cols),
-    rowSizes: even(spec.rows),
+    root: presetTree(kind, panes.map((p) => p.id)),
   };
+}
+
+function leaf(paneId: string): LayoutNode {
+  return { type: 'pane', paneId };
+}
+
+function splitOf(dir: SplitDir, children: LayoutNode[], sizes = even(children.length)): LayoutNode {
+  return children.length === 1 ? children[0] : { type: 'split', dir, children, sizes };
+}
+
+/**
+ * The tree for one of the fixed presets. A grid is rows of columns, so the
+ * groups read left to right, then top to bottom — the order Ctrl+1…9 counts.
+ */
+function presetTree(kind: LayoutKind, paneIds: string[]): LayoutNode {
+  const { cols, rows } = LAYOUTS[kind];
+  if (rows === 1) return splitOf('row', paneIds.slice(0, cols).map(leaf));
+  if (cols === 1) return splitOf('column', paneIds.slice(0, rows).map(leaf));
+  const lines: LayoutNode[] = [];
+  for (let r = 0; r < rows; r++) {
+    lines.push(splitOf('row', paneIds.slice(r * cols, r * cols + cols).map(leaf)));
+  }
+  return splitOf('column', lines);
+}
+
+/** Group ids in reading order. */
+function leafIds(node: LayoutNode): string[] {
+  return node.type === 'pane' ? [node.paneId] : node.children.flatMap(leafIds);
+}
+
+/**
+ * Brings a layout back to its canonical form after any edit: leaves whose
+ * group is gone are dropped, a split left with one child is replaced by it, a
+ * split inside another running the same way is folded into its parent, and
+ * `panes` is put back into reading order. A group the tree has lost hands its
+ * tabs to the last group rather than taking them with it.
+ */
+function normalizeLayout(l: Layout): Layout {
+  const byId = new Map(l.panes.map((p) => [p.id, p]));
+  const seen = new Set<string>();
+
+  const clean = (node: LayoutNode): LayoutNode | null => {
+    if (node.type === 'pane') {
+      if (!byId.has(node.paneId) || seen.has(node.paneId)) return null;
+      seen.add(node.paneId);
+      return node;
+    }
+    const children: LayoutNode[] = [];
+    const sizes: number[] = [];
+    node.children.forEach((child, i) => {
+      const kept = clean(child);
+      if (!kept) return;
+      const raw = node.sizes[i];
+      const size = Number.isFinite(raw) && raw > 0 ? raw : 1 / node.children.length;
+      if (kept.type === 'split' && kept.dir === node.dir) {
+        kept.children.forEach((grand, j) => {
+          children.push(grand);
+          sizes.push(size * kept.sizes[j]);
+        });
+      } else {
+        children.push(kept);
+        sizes.push(size);
+      }
+    });
+    if (!children.length) return null;
+    if (children.length === 1) return children[0];
+    const total = sizes.reduce((a, b) => a + b, 0);
+    return { type: 'split', dir: node.dir, children, sizes: sizes.map((x) => x / total) };
+  };
+
+  let root = clean(l.root);
+  if (!root) {
+    const first = l.panes[0] ?? makePane();
+    byId.set(first.id, first);
+    seen.add(first.id);
+    root = leaf(first.id);
+  }
+  const ordered = leafIds(root).map((id) => byId.get(id)!);
+  const lost = l.panes.filter((p) => !seen.has(p.id)).flatMap((p) => p.tabs);
+  if (lost.length) {
+    const sink = ordered[ordered.length - 1];
+    const extra = lost.filter((id) => !sink.tabs.includes(id));
+    ordered[ordered.length - 1] = {
+      ...sink,
+      tabs: [...sink.tabs, ...extra],
+      activeTabId: sink.activeTabId ?? extra[0] ?? null,
+    };
+  }
+  const activePaneId = ordered.some((p) => p.id === l.activePaneId)
+    ? l.activePaneId
+    : ordered[0].id;
+  return { panes: ordered, activePaneId, root };
+}
+
+/**
+ * A group that has just lost its last tab closes, and its space goes to its
+ * neighbours — the empty area never lingers. The last group always stays.
+ */
+function dropIfEmpty(l: Layout, paneId: string): Layout {
+  const pane = l.panes.find((p) => p.id === paneId);
+  if (!pane || pane.tabs.length || l.panes.length < 2) return l;
+  const index = l.panes.indexOf(pane);
+  const panes = l.panes.filter((p) => p.id !== paneId);
+  // Focus passes to the group that was next to it in reading order.
+  const activePaneId =
+    l.activePaneId === paneId ? panes[Math.max(0, index - 1)].id : l.activePaneId;
+  return normalizeLayout({ ...l, panes, activePaneId });
 }
 
 function even(n: number): number[] {
@@ -781,6 +889,7 @@ function emptyWorkspace(): Workspace {
     layout: makeLayout(),
     theme: 'dark',
     sidebarVisible: true,
+    sidebarPanel: 'files',
     settings: { ...DEFAULT_SETTINGS },
     vaultPath: '',
     files: [],
@@ -1150,6 +1259,7 @@ export async function loadWorkspace(): Promise<void> {
     layout,
     theme,
     sidebarVisible,
+    sidebarPanel: 'files',
     settings,
     vaultPath: vault.path ?? '',
     files: listing.files ?? [],
@@ -1333,11 +1443,14 @@ function keepUiAcross(snapshot: Workspace, current: Workspace): Workspace {
   return changed ? { ...snapshot, docs } : snapshot;
 }
 
-function sanitizeLayout(raw: Layout | undefined, known: Set<string>): Layout {
-  const kind: LayoutKind = raw && LAYOUTS[raw.kind] ? raw.kind : 'single';
-  const spec = LAYOUTS[kind];
-  const wanted = paneCount(kind);
+/** What a session written before the split tree stored. */
+interface LegacyLayout {
+  kind?: LayoutKind;
+  colSizes?: number[];
+  rowSizes?: number[];
+}
 
+function sanitizeLayout(raw: (Layout & LegacyLayout) | undefined, known: Set<string>): Layout {
   let panes: Pane[] = (raw?.panes ?? []).map((p) => {
     const tabs = (p.tabs ?? []).filter((id) => known.has(id));
     return {
@@ -1347,20 +1460,40 @@ function sanitizeLayout(raw: Layout | undefined, known: Set<string>): Layout {
     };
   });
   if (!panes.length) panes = [makePane()];
+  const activePaneId = raw?.activePaneId ?? panes[0].id;
+
+  if (raw?.root && typeof raw.root === 'object') {
+    return normalizeLayout({ panes, activePaneId, root: sanitizeNode(raw.root) });
+  }
+
+  // An older session: a preset grid with separate column and row fractions.
+  const kind: LayoutKind = raw?.kind && LAYOUTS[raw.kind] ? raw.kind : 'single';
+  const spec = LAYOUTS[kind];
+  const wanted = paneCount(kind);
   while (panes.length < wanted) panes.push(makePane());
   if (panes.length > wanted) panes = collapsePanes(panes, wanted);
+  const cols = sanitizeSizes(raw?.colSizes, spec.cols);
+  const rows = sanitizeSizes(raw?.rowSizes, spec.rows);
+  const withSizes = (node: LayoutNode): LayoutNode =>
+    node.type === 'pane'
+      ? node
+      : { ...node, sizes: node.dir === 'row' ? cols : rows, children: node.children.map(withSizes) };
+  const root = withSizes(presetTree(kind, panes.map((p) => p.id)));
+  return normalizeLayout({ panes, activePaneId, root });
+}
 
-  const activePaneId = panes.some((p) => p.id === raw?.activePaneId)
-    ? raw!.activePaneId
-    : panes[0].id;
-
-  return {
-    kind,
-    panes,
-    activePaneId,
-    colSizes: sanitizeSizes(raw?.colSizes, spec.cols),
-    rowSizes: sanitizeSizes(raw?.rowSizes, spec.rows),
-  };
+/** Trusts nothing about a stored tree beyond its shape; normalizing does the rest. */
+function sanitizeNode(raw: unknown): LayoutNode {
+  const node = (raw ?? {}) as Record<string, unknown>;
+  if (node.type === 'split' && Array.isArray(node.children) && node.children.length) {
+    return {
+      type: 'split',
+      dir: node.dir === 'column' ? 'column' : 'row',
+      children: node.children.map(sanitizeNode),
+      sizes: sanitizeSizes(node.sizes as number[] | undefined, node.children.length),
+    };
+  }
+  return leaf(typeof node.paneId === 'string' ? node.paneId : '');
 }
 
 function sanitizeSizes(sizes: number[] | undefined, n: number): number[] {
@@ -1468,13 +1601,33 @@ export function toggleTheme() {
 
 export function setSetting<K extends keyof Settings>(key: K, value: Settings[K]) {
   const next = { ...state.settings, [key]: value } as Settings;
-  if (key !== 'editorFont') {
+  if (key !== 'editorFont' && key !== 'noteWidth') {
     const bounds = SETTING_BOUNDS[key as keyof typeof SETTING_BOUNDS];
     if (bounds) {
       (next[key] as number) = clamp(Number(value), bounds[0], bounds[1]);
     }
   }
   commit({ ...state, settings: next }, { noHistory: true });
+}
+
+/**
+ * Whole-window zoom levels for Ctrl+= / Ctrl+-, the browser's familiar steps.
+ * Settings still offers any value in between; stepping from one of those
+ * lands on the next level up or down.
+ */
+const ZOOM_LEVELS = [0.6, 0.67, 0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2];
+
+/** Steps the interface zoom in (+1), out (-1) or back to 100% (0); returns the new factor. */
+export function zoomInterface(dir: 1 | -1 | 0): number {
+  const current = state.settings.uiScale;
+  const next =
+    dir === 0
+      ? 1
+      : dir > 0
+        ? ZOOM_LEVELS.find((z) => z > current + 0.001) ?? ZOOM_LEVELS[ZOOM_LEVELS.length - 1]
+        : [...ZOOM_LEVELS].reverse().find((z) => z < current - 0.001) ?? ZOOM_LEVELS[0];
+  setSetting('uiScale', next);
+  return next;
 }
 
 export function resetSettings() {
@@ -1490,11 +1643,32 @@ function readSettings(raw: Partial<Settings> | undefined): Settings {
     out[k] = Number.isFinite(n) ? clamp(n, lo, hi) : DEFAULT_SETTINGS[k];
   }
   if (!EDITOR_FONT_STACKS[out.editorFont]) out.editorFont = DEFAULT_SETTINGS.editorFont;
+  if (out.noteWidth !== 'full') out.noteWidth = 'readable';
   return out;
 }
 
 export function toggleSidebar() {
   commit({ ...state, sidebarVisible: !state.sidebarVisible }, { noHistory: true });
+}
+
+export function setSidebarPanel(panel: SidebarPanel) {
+  commit({ ...state, sidebarPanel: panel, sidebarVisible: true }, { noHistory: true });
+}
+
+const searchFocusListeners = new Set<() => void>();
+
+/** Ctrl+Shift+F: opens the sidebar on Search and puts the caret in its field. */
+export function showVaultSearch() {
+  setSidebarPanel('search');
+  // The panel may be mounting in this very render; let it subscribe first.
+  requestAnimationFrame(() => {
+    for (const l of searchFocusListeners) l();
+  });
+}
+
+export function onSearchFocus(listener: () => void): () => void {
+  searchFocusListeners.add(listener);
+  return () => searchFocusListeners.delete(listener);
 }
 
 /* -------------------------------------------------------- pane/tab verbs */
@@ -1561,6 +1735,7 @@ export function closeTab(paneId: string, docId: string) {
       return { ...p, tabs, activeTabId };
     })
   );
+  withLayout((l) => dropIfEmpty(l, paneId));
   releaseBuffer(docId);
 }
 
@@ -1712,8 +1887,75 @@ export function moveTab(fromPaneId: string, docId: string, toPaneId: string, toI
     const tabs = target.tabs.filter((t) => t !== docId);
     tabs.splice(clamp(toIndex, 0, tabs.length), 0, docId);
     const next = panes.map((p) => (p.id === toPaneId ? { ...p, tabs, activeTabId: docId } : p));
-    return { ...l, panes: next, activePaneId: toPaneId };
+    return dropIfEmpty({ ...l, panes: next, activePaneId: toPaneId }, fromPaneId);
   });
+}
+
+/**
+ * Drops a tab on a group's edge: a new group opens on that side holding it,
+ * and the layout splits that way — the gesture VS Code uses. Dragging a
+ * group's only tab onto its own edge would just move the group, so it is
+ * ignored.
+ */
+export function splitWithTab(
+  fromPaneId: string,
+  docId: string,
+  targetPaneId: string,
+  side: SplitSide
+) {
+  withLayout((l) => {
+    const from = l.panes.find((p) => p.id === fromPaneId);
+    if (!from || !from.tabs.includes(docId)) return l;
+    if (!l.panes.some((p) => p.id === targetPaneId)) return l;
+    if (fromPaneId === targetPaneId && from.tabs.length === 1) return l;
+
+    const fresh = makePane([docId], docId);
+    const panes = l.panes.map((p) => {
+      if (p.id !== fromPaneId) return p;
+      const index = p.tabs.indexOf(docId);
+      const tabs = p.tabs.filter((t) => t !== docId);
+      const activeTabId =
+        p.activeTabId === docId ? tabs[Math.min(index, tabs.length - 1)] ?? null : p.activeTabId;
+      return { ...p, tabs, activeTabId };
+    });
+
+    const dir: SplitDir = side === 'left' || side === 'right' ? 'row' : 'column';
+    const before = side === 'left' || side === 'top';
+    // Replacing the leaf with a two-way split is enough: normalizing folds it
+    // into a parent that already runs the same way, halving the target's share.
+    const insert = (node: LayoutNode): LayoutNode => {
+      if (node.type === 'pane') {
+        if (node.paneId !== targetPaneId) return node;
+        const added = leaf(fresh.id);
+        return splitOf(dir, before ? [added, node] : [node, added]);
+      }
+      return { ...node, children: node.children.map(insert) };
+    };
+
+    const next = normalizeLayout({
+      panes: [...panes, fresh],
+      activePaneId: fresh.id,
+      root: insert(l.root),
+    });
+    return dropIfEmpty(next, fromPaneId);
+  });
+}
+
+/** Moves the active tab into a new group beside its own. */
+export function splitActiveTab(side: SplitSide) {
+  const pane = activePane(state);
+  if (pane?.activeTabId) splitWithTab(pane.id, pane.activeTabId, pane.id, side);
+}
+
+/** A name for the current arrangement, for the status bar. */
+export function layoutLabel(l: Layout): string {
+  const n = l.panes.length;
+  if (n === 1) return 'Single';
+  const { root } = l;
+  if (root.type === 'split' && root.children.every((c) => c.type === 'pane')) {
+    return `${root.dir === 'row' ? 'Columns' : 'Rows'}: ${n}`;
+  }
+  return `${n} groups`;
 }
 
 /** Sends the active tab of one pane to the neighbouring pane. */
@@ -1726,19 +1968,33 @@ export function moveActiveTabToPane(fromPaneId: string, toPaneId: string) {
 
 export function setLayoutKind(kind: LayoutKind) {
   withLayout((l) => {
-    if (l.kind === kind) return l;
     const spec = LAYOUTS[kind];
     const wanted = spec.cols * spec.rows;
     let panes = l.panes.slice();
     while (panes.length < wanted) panes.push(makePane());
     if (panes.length > wanted) panes = collapsePanes(panes, wanted);
     const activePaneId = panes.some((p) => p.id === l.activePaneId) ? l.activePaneId : panes[0].id;
-    return { kind, panes, activePaneId, colSizes: even(spec.cols), rowSizes: even(spec.rows) };
+    return normalizeLayout({ panes, activePaneId, root: presetTree(kind, panes.map((p) => p.id)) });
   });
 }
 
-export function setSplitSizes(axis: 'col' | 'row', sizes: number[]) {
-  withLayout((l) => ({ ...l, [axis === 'col' ? 'colSizes' : 'rowSizes']: sizes }) as Layout);
+/**
+ * Resizes the children of one split. `path` is the list of child indices from
+ * the root down to that split.
+ */
+export function setSplitSizes(path: number[], sizes: number[]) {
+  withLayout((l) => {
+    const apply = (node: LayoutNode, depth: number): LayoutNode => {
+      if (node.type !== 'split') return node;
+      if (depth === path.length) {
+        return sizes.length === node.children.length ? { ...node, sizes } : node;
+      }
+      const children = node.children.slice();
+      children[path[depth]] = apply(children[path[depth]], depth + 1);
+      return { ...node, children };
+    };
+    return { ...l, root: apply(l.root, 0) };
+  });
 }
 
 /* --------------------------------------------------------- doc lifecycle */
@@ -1807,7 +2063,11 @@ export function closeDoc(docId: string) {
         p.activeTabId === docId ? tabs[Math.min(index, tabs.length - 1)] ?? null : p.activeTabId,
     };
   });
-  commit({ ...state, docs, layout: { ...state.layout, panes } });
+  let layout: Layout = { ...state.layout, panes };
+  for (const p of state.layout.panes) {
+    if (p.tabs.includes(docId)) layout = dropIfEmpty(layout, p.id);
+  }
+  commit({ ...state, docs, layout });
 }
 
 /** Copies a document to a new file beside the original and opens it. */
@@ -2500,6 +2760,39 @@ export function createDiagramDoc(title?: string, paneId?: string): string {
   commit({ ...state, docs: [...state.docs, doc] });
   openDoc(doc.id, paneId ?? state.layout.activePaneId);
   return doc.id;
+}
+
+/* ---------------------------------------------------------- jump to line */
+
+/** A place in a note: 1-based line, then a column and a length to select. */
+export interface RevealTarget {
+  line: number;
+  ch: number;
+  length: number;
+}
+
+/**
+ * Requests to show a place in a note, keyed by buffer. The editor may not
+ * exist yet — opening a file is asynchronous — so a request waits here until
+ * an editor for that buffer mounts, or is picked up at once by one that has.
+ */
+const pendingReveal = new Map<string, RevealTarget>();
+const revealListeners = new Set<(docId: string) => void>();
+
+export function revealInDoc(docId: string, target: RevealTarget) {
+  pendingReveal.set(docId, target);
+  for (const l of revealListeners) l(docId);
+}
+
+export function takeReveal(docId: string): RevealTarget | null {
+  const target = pendingReveal.get(docId) ?? null;
+  pendingReveal.delete(docId);
+  return target;
+}
+
+export function onReveal(listener: (docId: string) => void): () => void {
+  revealListeners.add(listener);
+  return () => revealListeners.delete(listener);
 }
 
 /* --------------------------------------------------------------- lookups */

@@ -1,9 +1,10 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { baseName, dirName, VaultFile, Workspace } from '../types';
 import * as S from '../store';
 import ContextMenu, { MenuState } from './ContextMenu';
 import Prompt, { PromptState } from './Prompt';
 import DocIcon from './DocIcon';
+import VaultSearch from './VaultSearch';
 
 interface TreeNode {
   rel: string;
@@ -49,7 +50,8 @@ export default function Sidebar({ ws, onFlash }: { ws: Workspace; onFlash: (m: s
   const [dropFolder, setDropFolder] = useState<string | null>(null);
   /** Pending spring-load: hovering a collapsed folder opens it after a beat. */
   const springRef = useRef<{ rel: string; timer: number } | null>(null);
-  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  /** Folders the user has opened. Everything starts closed, as in VS Code. */
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
 
   const tree = useMemo(() => buildTree(ws), [ws.files, ws.dirs]);
   const openPaths = useMemo(() => {
@@ -58,12 +60,36 @@ export default function Sidebar({ ws, onFlash }: { ws: Workspace; onFlash: (m: s
     return map;
   }, [ws.docs]);
   const activeId = S.activeDocId(ws);
+  const activePath = S.findDoc(ws, activeId)?.path ?? null;
   const q = query.trim().toLowerCase();
+
+  // Switching to a file opens the folders it lives in, so the highlighted row
+  // is on screen — but not on launch, where every folder starts closed.
+  const firstPath = useRef(true);
+  useEffect(() => {
+    if (firstPath.current) {
+      firstPath.current = false;
+      return;
+    }
+    if (!activePath?.includes('/')) return;
+    const parts = activePath.split('/').slice(0, -1);
+    setExpanded((e) => {
+      const next = { ...e };
+      parts.forEach((_, i) => (next[parts.slice(0, i + 1).join('/')] = true));
+      return next;
+    });
+  }, [activePath]);
 
   /** Unsaved buffers that have no file yet still belong in the list. */
   const untitled = ws.docs.filter((d) => !d.path);
 
   const matches = (rel: string) => !q || rel.toLowerCase().includes(q);
+
+  /** While filtering, a folder shows only if something inside it matches. */
+  const hasMatch = (node: TreeNode): boolean =>
+    node.files.some((f) => matches(f.rel)) || node.children.some(hasMatch);
+
+  const anyExpanded = Object.values(expanded).some(Boolean);
 
   const fileMenu = (file: VaultFile, x: number, y: number): MenuState => ({
     x,
@@ -157,7 +183,7 @@ export default function Sidebar({ ws, onFlash }: { ws: Workspace; onFlash: (m: s
       rel,
       timer: window.setTimeout(() => {
         springRef.current = null;
-        setCollapsed((c) => ({ ...c, [rel]: false }));
+        setExpanded((c) => ({ ...c, [rel]: true }));
       }, 600),
     };
   };
@@ -180,7 +206,9 @@ export default function Sidebar({ ws, onFlash }: { ws: Workspace; onFlash: (m: s
   };
 
   const renderNode = (node: TreeNode, depth: number) => {
-    const isOpen = !collapsed[node.rel];
+    if (q && node.rel !== '' && !hasMatch(node)) return null;
+    // A filter opens every folder, or its matches would be hidden inside them.
+    const isOpen = node.rel === '' || Boolean(q) || Boolean(expanded[node.rel]);
     const visibleFiles = node.files.filter((f) => matches(f.rel));
     const dragging = dragRel !== null;
     return (
@@ -196,7 +224,7 @@ export default function Sidebar({ ws, onFlash }: { ws: Workspace; onFlash: (m: s
                 e.preventDefault();
                 e.stopPropagation();
                 setDropFolder(node.rel);
-                if (node.rel !== '' && collapsed[node.rel]) springOpen(node.rel);
+                if (node.rel !== '' && !isOpen) springOpen(node.rel);
                 else cancelSpring();
               }
             : undefined
@@ -223,7 +251,7 @@ export default function Sidebar({ ws, onFlash }: { ws: Workspace; onFlash: (m: s
               e.dataTransfer.setData('text/plain', node.name);
             }}
             onDragEnd={endDrag}
-            onClick={() => setCollapsed((c) => ({ ...c, [node.rel]: !c[node.rel] }))}
+            onClick={() => setExpanded((c) => ({ ...c, [node.rel]: !c[node.rel] }))}
             onContextMenu={(e) => {
               e.preventDefault();
               setMenu(folderMenu(node.rel, e.clientX, e.clientY));
@@ -293,8 +321,43 @@ export default function Sidebar({ ws, onFlash }: { ws: Workspace; onFlash: (m: s
     );
   };
 
+  const panelTabs = (
+    <div className="sidebar-tabs" role="tablist">
+      <button
+        type="button"
+        role="tab"
+        aria-selected={ws.sidebarPanel === 'files'}
+        className={ws.sidebarPanel === 'files' ? 'on' : ''}
+        onClick={() => S.setSidebarPanel('files')}
+        title="Explorer"
+      >
+        Explorer
+      </button>
+      <button
+        type="button"
+        role="tab"
+        aria-selected={ws.sidebarPanel === 'search'}
+        className={ws.sidebarPanel === 'search' ? 'on' : ''}
+        onClick={() => S.showVaultSearch()}
+        title="Search the vault (Ctrl+Shift+F)"
+      >
+        Search
+      </button>
+    </div>
+  );
+
+  if (ws.sidebarPanel === 'search') {
+    return (
+      <aside className="sidebar">
+        {panelTabs}
+        <VaultSearch ws={ws} />
+      </aside>
+    );
+  }
+
   return (
     <aside className="sidebar">
+      {panelTabs}
       <div className="sidebar-head">
         <span className="sidebar-title" title={ws.vaultPath}>
           {ws.vaultPath ? ws.vaultPath.split(/[\\/]/).pop() : 'Vault'}
@@ -323,6 +386,28 @@ export default function Sidebar({ ws, onFlash }: { ws: Workspace; onFlash: (m: s
             onClick={() => S.createDiagramDoc()}
           >
             ◇
+          </button>
+          <button
+            type="button"
+            className="icon-btn"
+            title="Collapse Folders"
+            aria-label="Collapse Folders"
+            disabled={!anyExpanded}
+            onClick={() => setExpanded({})}
+          >
+            <svg
+              viewBox="0 0 16 16"
+              width="14"
+              height="14"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.3"
+              strokeLinejoin="round"
+            >
+              <rect x="4.5" y="4.5" width="9" height="9" rx="1" />
+              <path d="M2.5 11.5v-9h9" />
+              <path d="M6.8 9h4.4" strokeLinecap="round" />
+            </svg>
           </button>
           <button
             type="button"

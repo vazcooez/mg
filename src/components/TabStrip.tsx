@@ -51,12 +51,25 @@ export default function TabStrip({
         { label: 'Close Tabs to the Right', run: () => void S.closeTabsToRight(pane.id, docId) },
         { label: 'Close All Tabs', run: () => void S.closeAllTabs(pane.id) },
         { separator: true },
-        ...others.map((p, i) => ({
+        // A group's only tab cannot leave to make a new group: the old one
+        // would close behind it, and nothing would have moved.
+        {
+          label: 'Split Right',
+          detail: 'Ctrl+\\',
+          disabled: pane.tabs.length < 2,
+          run: () => S.splitWithTab(pane.id, docId, pane.id, 'right'),
+        },
+        {
+          label: 'Split Down',
+          disabled: pane.tabs.length < 2,
+          run: () => S.splitWithTab(pane.id, docId, pane.id, 'bottom'),
+        },
+        ...others.map((p) => ({
           label: `Move to Group ${ws.layout.panes.indexOf(p) + 1}`,
-          detail: i === 0 ? 'Ctrl+Shift+N' : undefined,
+          detail: `Ctrl+Shift+${ws.layout.panes.indexOf(p) + 1}`,
           run: () => S.moveTab(pane.id, docId, p.id, p.tabs.length),
         })),
-        ...(others.length ? [{ separator: true }] : []),
+        { separator: true },
         { label: 'Duplicate', run: () => void S.duplicateDoc(docId) },
         {
           label: 'Reveal in Explorer',

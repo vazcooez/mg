@@ -288,6 +288,21 @@ function indentDepth(indent: string): number {
   return Math.floor(columns / INDENT_WIDTH);
 }
 
+/** CodeMirror's default `tab-size`, which is how wide a tab in the indent draws. */
+const TAB_COLUMNS = 4;
+
+/** How many space-widths the leading whitespace actually occupies on screen. */
+function indentColumns(indent: string): number {
+  let columns = 0;
+  for (const ch of indent) columns += ch === '\t' ? TAB_COLUMNS : 1;
+  return columns;
+}
+
+/** Width of an ordered marker such as `12.`, shared by the glyph and the hang. */
+function numberWidth(label: string): string {
+  return `calc(${Math.max(2, label.length)}ch + 0.4ch)`;
+}
+
 /**
  * The list marker, drawn rather than written. Replacing it means the caret
  * cannot sit inside it and it cannot be selected as text: it reads as a bullet
@@ -305,6 +320,8 @@ class BulletWidget extends WidgetType {
     const span = document.createElement('span');
     span.className = `cm-bullet${this.ordered ? ' cm-bullet-num' : ''}`;
     span.textContent = this.label;
+    // A fixed width, so the hanging indent of wrapped lines can match it.
+    if (this.ordered) span.style.width = numberWidth(this.label);
     // A replaced range holds no cursor position, so without this a click on
     // the bullet would leave the caret wherever it happened to be.
     span.addEventListener('mousedown', (event) => {
@@ -319,14 +336,27 @@ class BulletWidget extends WidgetType {
   }
 }
 
+let measureContext: CanvasRenderingContext2D | null = null;
+
+/** Width of one space in the editor's font; only equal to `ch` in monospace. */
+function spaceWidth(view: EditorView): number {
+  measureContext ??= document.createElement('canvas').getContext('2d');
+  if (!measureContext) return view.defaultCharacterWidth;
+  const s = getComputedStyle(view.contentDOM);
+  measureContext.font = `${s.fontStyle} ${s.fontWeight} ${s.fontSize} ${s.fontFamily}`;
+  return measureContext.measureText(' ').width || view.defaultCharacterWidth;
+}
+
 /**
- * CodeMirror knows the real width of a character in the current font; the
- * indent guides are drawn from it, so they line up with the text at any font
- * size or typeface.
+ * CodeMirror knows the real width of a character in the current font, and a
+ * space is measured alongside it. Indent guides and the hanging indent of
+ * wrapped list items are drawn from these, so they line up with the text at
+ * any font size or typeface — a space in a serif face is far narrower than `ch`.
  */
 const charWidth = ViewPlugin.fromClass(
   class {
     width = 0;
+    space = 0;
     constructor(view: EditorView) {
       this.sync(view);
     }
@@ -334,10 +364,19 @@ const charWidth = ViewPlugin.fromClass(
       if (update.geometryChanged) this.sync(update.view);
     }
     sync(view: EditorView) {
-      const next = view.defaultCharacterWidth;
-      if (!next || Math.abs(next - this.width) < 0.01) return;
-      this.width = next;
-      view.dom.style.setProperty('--cm-char-width', `${next}px`);
+      view.requestMeasure({
+        read: () => ({ width: view.defaultCharacterWidth, space: spaceWidth(view) }),
+        write: ({ width, space }) => {
+          if (width && Math.abs(width - this.width) >= 0.01) {
+            this.width = width;
+            view.dom.style.setProperty('--cm-char-width', `${width}px`);
+          }
+          if (space && Math.abs(space - this.space) >= 0.01) {
+            this.space = space;
+            view.dom.style.setProperty('--cm-space-width', `${space}px`);
+          }
+        },
+      });
     }
   }
 );
@@ -435,7 +474,9 @@ function buildDecorations(view: EditorView): { decorations: DecorationSet; marke
         marks.push(Decoration.line({ class: 'cm-quote-line' }).range(line.from));
       }
 
-      if (HR.test(text) && text.trim()) {
+      // A rule is drawn only while the caret is elsewhere; on its own line the
+      // dashes come back, like every other piece of markup.
+      if (!isActive && HR.test(text) && text.trim()) {
         marks.push(Decoration.line({ class: 'cm-hr-line' }).range(line.from));
       }
 
@@ -477,11 +518,20 @@ function buildDecorations(view: EditorView): { decorations: DecorationSet; marke
           );
         }
         markerRanges.push(hidden.range(from, to));
+        // Wrapped lines hang under the item's text rather than under its
+        // bullet: the indent, then whatever stands in for the marker.
+        const markerWidth = task
+          ? // The checkbox and its margin (see `.cm-task`), then the space after `]`.
+            'calc(1.42em + var(--cm-space-width, 0.6em))'
+          : ordered
+            ? numberWidth(marker)
+            : '2ch';
+        const hang = `calc(${indentColumns(indent)} * var(--cm-space-width, 0.6em) + ${markerWidth})`;
         // One guide per ancestor level, so nested items read as one group.
         marks.push(
           Decoration.line({
             class: 'cm-list-line',
-            attributes: { style: `--list-depth:${depth}` },
+            attributes: { style: `--list-depth:${depth};--list-hang:${hang}` },
           }).range(line.from)
         );
       }

@@ -42,6 +42,7 @@ export default function App() {
     root.setProperty('--editor-font', EDITOR_FONT_STACKS[s.editorFont]);
     root.setProperty('--table-font-size', `${s.tableFontSize}px`);
     root.setProperty('--chrome-font-size', `${s.chromeFontSize}px`);
+    root.setProperty('--note-max-width', s.noteWidth === 'full' ? 'none' : '46rem');
     void window.api?.setUiScale(s.uiScale);
   }, [ws.settings]);
 
@@ -171,6 +172,18 @@ export default function App() {
         case 'settings':
           setSettingsOpen(true);
           break;
+        case 'find-in-vault':
+          S.showVaultSearch();
+          break;
+        case 'zoom-in':
+          flash(`Zoom ${Math.round(S.zoomInterface(1) * 100)}%`);
+          break;
+        case 'zoom-out':
+          flash(`Zoom ${Math.round(S.zoomInterface(-1) * 100)}%`);
+          break;
+        case 'zoom-reset':
+          flash(`Zoom ${Math.round(S.zoomInterface(0) * 100)}%`);
+          break;
         case 'font-bigger':
           S.setSetting('editorFontSize', ws.settings.editorFontSize + 1);
           break;
@@ -286,14 +299,43 @@ export default function App() {
         return;
       }
 
-      // Ctrl+N — focus pane N. Ctrl+Shift+N — move the active tab to pane N.
-      if (ctrl && !e.altKey && /^[1-9]$/.test(e.key)) {
-        const target = ws.layout.panes[Number(e.key) - 1];
+      // Ctrl+N — focus pane N. Ctrl+Shift+N — move the active tab to pane N;
+      // one past the last group opens a new group for it, as in Sublime.
+      // Shift changes `key` on the digit row, so the physical key is read.
+      const digit = /^Digit([1-9])$/.exec(e.code)?.[1];
+      if (ctrl && !e.altKey && digit) {
+        const n = Number(digit);
+        const target = ws.layout.panes[n - 1];
+        if (e.shiftKey && !target && n === ws.layout.panes.length + 1) {
+          e.preventDefault();
+          S.splitActiveTab('right');
+          return;
+        }
         if (!target) return;
         e.preventDefault();
         if (e.shiftKey) S.moveActiveTabToPane(pane.id, target.id);
         else S.focusPane(target.id);
         return;
+      }
+
+      // Ctrl+\ — move the active tab into a new group on the right (VS Code).
+      if (ctrl && !e.shiftKey && !e.altKey && e.code === 'Backslash') {
+        e.preventDefault();
+        S.splitActiveTab('right');
+        return;
+      }
+
+      // Zoom. Ctrl+= / Ctrl+- / Ctrl+0 arrive through the menu; Ctrl++ (which is
+      // Ctrl+Shift+=) and the numpad keys are distinct accelerators the menu
+      // cannot also list, so they are caught here instead.
+      if (ctrl && !e.altKey) {
+        const zoom =
+          e.key === '+' ? 1 : e.code === 'NumpadSubtract' ? -1 : e.code === 'Numpad0' ? 0 : null;
+        if (zoom !== null) {
+          e.preventDefault();
+          runMenu(zoom > 0 ? 'zoom-in' : zoom < 0 ? 'zoom-out' : 'zoom-reset');
+          return;
+        }
       }
 
       // Ctrl+Tab cycles tabs; handled here as well as on the menu accelerator.
@@ -326,7 +368,7 @@ export default function App() {
 
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [pane.id, pane.activeTabId, palette, ws.layout.panes]);
+  }, [pane.id, pane.activeTabId, palette, ws.layout.panes, runMenu]);
 
   /* -------------------------------------------------------- palette data */
 
@@ -387,15 +429,29 @@ export default function App() {
       },
       { id: 'c:settings', label: 'Preferences: Settings…', detail: 'Ctrl+,', run: () => setSettingsOpen(true) },
       {
+        id: 'c:zoom+',
+        label: 'View: Zoom In',
+        detail: 'Ctrl+=',
+        run: () => runMenu('zoom-in'),
+      },
+      { id: 'c:zoom-', label: 'View: Zoom Out', detail: 'Ctrl+-', run: () => runMenu('zoom-out') },
+      { id: 'c:zoom0', label: 'View: Reset Zoom', detail: 'Ctrl+0', run: () => runMenu('zoom-reset') },
+      {
+        id: 'c:note-width',
+        label:
+          ws.settings.noteWidth === 'full'
+            ? 'View: Readable Width for Notes'
+            : 'View: Full-Width Notes',
+        run: () => S.setSetting('noteWidth', ws.settings.noteWidth === 'full' ? 'readable' : 'full'),
+      },
+      {
         id: 'c:font+',
         label: 'Preferences: Increase Editor Font Size',
-        detail: 'Ctrl+=',
         run: () => S.setSetting('editorFontSize', ws.settings.editorFontSize + 1),
       },
       {
         id: 'c:font-',
         label: 'Preferences: Decrease Editor Font Size',
-        detail: 'Ctrl+-',
         run: () => S.setSetting('editorFontSize', ws.settings.editorFontSize - 1),
       },
       ...Object.values(LAYOUTS).map((spec) => ({
@@ -404,6 +460,23 @@ export default function App() {
         detail: spec.accelerator,
         run: () => S.setLayoutKind(spec.kind),
       })),
+      {
+        id: 'c:find-vault',
+        label: 'Search: Find in Vault',
+        detail: 'Ctrl+Shift+F',
+        run: () => S.showVaultSearch(),
+      },
+      {
+        id: 'c:split-right',
+        label: 'View: Split Right — Move Tab to a New Group',
+        detail: 'Ctrl+\\',
+        run: () => S.splitActiveTab('right'),
+      },
+      {
+        id: 'c:split-down',
+        label: 'View: Split Down — Move Tab to a New Group',
+        run: () => S.splitActiveTab('bottom'),
+      },
       {
         id: 'c:close',
         label: 'Tab: Close',
@@ -477,7 +550,7 @@ export default function App() {
       });
     }
     return list;
-  }, [activeDoc, ws.theme, ws.settings, pane.id, pane.activeTabId, save, saveAs, saveAll, setDocView]);
+  }, [activeDoc, ws.theme, ws.settings, pane.id, pane.activeTabId, save, saveAs, saveAll, setDocView, runMenu]);
 
   return (
     <div className="app">
