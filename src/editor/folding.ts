@@ -30,6 +30,8 @@ import {
 
 const HEADING = /^(#{1,6})\s/;
 
+const SVG_NS = 'http://www.w3.org/2000/svg';
+
 /** 1–6 for a heading line, 0 for anything else. */
 function headingLevel(text: string): number {
   return HEADING.exec(text)?.[1].length ?? 0;
@@ -104,9 +106,21 @@ class FoldArrow extends WidgetType {
   toDOM(view: EditorView) {
     const arrow = document.createElement('span');
     arrow.className = `cm-fold-arrow${this.folded ? ' cm-folded' : ''}`;
-    arrow.textContent = this.folded ? '▸' : '▾';
-    arrow.title = this.folded ? 'Expand section' : 'Collapse section';
-    arrow.setAttribute('aria-hidden', 'true');
+    // A drawn chevron rather than a text triangle: ▾ is a glyph from whatever
+    // font happens to have it, so its weight and alignment are out of our
+    // hands and it renders as a small blob. This one turns to point at the
+    // collapsed section instead of being swapped for a different character.
+    // No `title`: the browser's own tooltip is slow, unstyled, and lands on
+    // top of the heading it is meant to be describing.
+    const svg = document.createElementNS(SVG_NS, 'svg');
+    svg.setAttribute('viewBox', '0 0 12 12');
+    svg.setAttribute('aria-hidden', 'true');
+    const path = document.createElementNS(SVG_NS, 'path');
+    path.setAttribute('d', 'M3.5 4.75 L6 7.75 L8.5 4.75');
+    svg.appendChild(path);
+    arrow.appendChild(svg);
+    arrow.setAttribute('role', 'button');
+    arrow.setAttribute('aria-label', this.folded ? 'Expand section' : 'Collapse section');
     arrow.addEventListener('mousedown', (event) => {
       // Without this the click would also drop the caret into the heading.
       event.preventDefault();

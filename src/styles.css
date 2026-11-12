@@ -2891,18 +2891,48 @@ input.cell-check.prop-check {
 
 .cm-fold-arrow {
   position: absolute;
-  left: -20px;
+  /* Offsets in px, not `em`: the arrows then line up in one column down the
+     margin instead of stepping in and out with each heading's size. */
+  left: -22px;
   top: 0;
-  width: 14px;
-  /* Fixed, not `em`: the arrow is the same size against an h1 and an h6. */
-  font-size: 11px;
-  line-height: inherit;
-  text-align: center;
+  width: 17px;
+  /* One line box of the heading it belongs to, so the chevron sits against the
+     first line of a wrapped heading rather than the middle of the block.
+     `lh` is exactly that; the `em` above it is the fallback. */
+  height: 1.4em;
+  height: 1lh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
   color: var(--text-faint);
   cursor: pointer;
   user-select: none;
   opacity: 0;
-  transition: opacity 0.12s ease;
+  transition:
+    opacity 0.12s ease,
+    color 0.12s ease,
+    background-color 0.12s ease;
+}
+
+.cm-fold-arrow svg {
+  width: 12px;
+  height: 12px;
+  transition: transform 0.15s ease;
+}
+
+.cm-fold-arrow path {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.75;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* Turning the chevron rather than swapping the glyph keeps the two states
+   recognisably the same control. */
+.cm-fold-arrow.cm-folded svg {
+  transform: rotate(-90deg);
 }
 
 .cm-fold-head:hover .cm-fold-arrow,
@@ -2912,6 +2942,7 @@ input.cell-check.prop-check {
 
 .cm-fold-arrow:hover {
   color: var(--text);
+  background: color-mix(in srgb, var(--text) 12%, transparent);
 }
 
 /* What a collapsed section leaves behind, at the end of its heading. */

@@ -478,6 +478,10 @@ function buildDecorations(view: EditorView): { decorations: DecorationSet; marke
       // dashes come back, like every other piece of markup.
       if (!isActive && HR.test(text) && text.trim()) {
         marks.push(Decoration.line({ class: 'cm-hr-line' }).range(line.from));
+        // The dashes are hidden outright rather than painted transparent: the
+        // highlighter gives a rule's dashes an inline colour, and an inline
+        // colour beats anything the line itself can say about them.
+        marks.push(hidden.range(line.from, line.to));
       }
 
       // Task checkboxes become real checkboxes.
