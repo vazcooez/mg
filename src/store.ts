@@ -20,6 +20,9 @@ import {
   Port,
   QUADRANT_COLOR,
   quadrantOf,
+  Repeat,
+  REPEAT_UNITS,
+  RepeatUnit,
   STATUS_COLOR,
   DEFAULT_COLOR,
   DEFAULT_DURATION_MIN,
@@ -106,6 +109,7 @@ export function makeItem(parentId: string | null, overrides: Partial<TodoItem> =
     deletedAt: null,
     scheduledAt: defaultScheduleTime(),
     durationMin: DEFAULT_DURATION_MIN,
+    repeat: null,
     ...overrides,
   };
 }
@@ -373,12 +377,39 @@ export function parseDocBody(
   return {
     type: 'todo',
     title: data.title || title,
-    items: normalize((data.items ?? []).map((it) => ({ ...makeItem(it.parentId ?? null), ...it }))),
+    items: normalize(
+      (data.items ?? []).map((it) => ({
+        ...makeItem(it.parentId ?? null),
+        ...it,
+        // A hand-edited or older file can carry anything here; a malformed rule
+        // becomes a one-off rather than something the calendar has to guess at.
+        repeat: readRepeat(it.repeat),
+      }))
+    ),
     propertyDefs: readPropertyDefs(data),
     assigneeType: data.assigneeType === 'select' ? 'select' : 'text',
     assigneeOptions: Array.isArray(data.assigneeOptions) ? data.assigneeOptions : [],
     view: data.view === 'tree' ? 'tree' : 'matrix',
   };
+}
+
+/** Reads a repeat rule from file data, dropping anything it cannot make sense of. */
+function readRepeat(raw: unknown): Repeat | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const r = raw as Partial<Repeat>;
+  if (!REPEAT_UNITS.includes(r.unit as RepeatUnit)) return null;
+  const out: Repeat = { unit: r.unit as RepeatUnit };
+  if (Array.isArray(r.days)) {
+    const days = [...new Set(r.days.filter((n) => Number.isInteger(n) && n >= 0 && n <= 6))].sort(
+      (a, b) => a - b
+    );
+    if (days.length) out.days = days;
+  }
+  if (Number.isInteger(r.dayOfMonth) && (r.dayOfMonth as number) >= 1 && (r.dayOfMonth as number) <= 31) {
+    out.dayOfMonth = r.dayOfMonth;
+  }
+  if (typeof r.until === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(r.until)) out.until = r.until;
+  return out;
 }
 
 /** Accepts the current `propertyDefs` or the original `propertyColumns: string[]`. */
@@ -2211,6 +2242,28 @@ export function setSchedule(
   updateItem(docId, itemId, patch, coalesce);
 }
 
+/**
+ * Turns repeating on or off, and edits the rule.
+ *
+ * A rule needs a slot to repeat from, so switching it on without one schedules
+ * the item at the default time first — otherwise "every weekday" would be a
+ * setting with nothing to act on.
+ */
+export function setRepeat(docId: string, itemId: string, repeat: Repeat | null) {
+  updateTodo(docId, (d) => ({
+    ...d,
+    items: d.items.map((i) => {
+      if (i.id !== itemId) return i;
+      if (!repeat) return { ...i, repeat: null };
+      return {
+        ...i,
+        repeat,
+        scheduledAt: i.scheduledAt ?? defaultScheduleTime(),
+      };
+    }),
+  }));
+}
+
 /** Duration only — resizing a block must never disturb its start time. */
 export function setDuration(docId: string, itemId: string, minutes: number, coalesce?: string) {
   updateItem(
@@ -2845,6 +2898,13 @@ export function useCaret(): CaretInfo | null {
 export function findDoc(ws: Workspace, id: string | null): Doc | null {
   if (!id) return null;
   return ws.docs.find((d) => d.id === id) ?? null;
+}
+
+/** One item out of a todo document, for code that needs the live copy mid-gesture. */
+export function findItem(ws: Workspace, docId: string, itemId: string): TodoItem | null {
+  const doc = findDoc(ws, docId);
+  if (!doc || doc.type !== 'todo') return null;
+  return doc.items.find((i) => i.id === itemId) ?? null;
 }
 
 /** Wikilink resolution: prefers an open buffer, then any file in the vault. */

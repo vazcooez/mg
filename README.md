@@ -225,8 +225,8 @@ Middle-click closes a tab.
 Every item has a **parent** (optional), title, assignee, **urgency** 1–10,
 **importance** 1–10, **weight** 1–10, a **color** that inherits from its parent unless
 overridden, a **status** (planned / scheduled / in progress / done), a **show on the
-matrix** flag, a long-form **description** in markdown, an optional **start time** and
-**duration** for the calendar, and any number of **custom properties**. The tree nests
+matrix** flag, a long-form **description** in markdown, an optional **start time**,
+**duration** and **repeat rule** for the calendar, and any number of **custom properties**. The tree nests
 as deep as you like.
 
 ### Eisenhower matrix (`Ctrl+Alt+1`)
@@ -283,12 +283,46 @@ An item with a **start time** and a **duration** gets a block on the calendar; o
 without a start is simply unscheduled. Day and week views, `‹` / `›` to step and
 **Today** to come back.
 
+- **Drag empty grid** to draw a new item straight onto the calendar: press where it
+  starts, pull to where it ends, let go. A dashed ghost shows the span and the running
+  length as you drag, and the block you drew becomes the item's duration. A click that
+  does not move creates nothing; double-click still drops a default-length block.
 - **Drag a block** to move it, **drag its bottom edge** to change how long it runs.
 - The **queue** on the right holds work that has no time yet. Drag something out of it
   onto the calendar to schedule it. The queue filters by *matrix quadrant* rather than
   by workflow status — what you schedule is the important-but-not-urgent work, which is
   the whole point of the second quadrant.
 - Blocks carry their item's colour, so the week reads the same way the matrix does.
+
+### Repeating work
+
+An item can recur, from the **Repeats** field in the inspector:
+
+| | |
+|---|---|
+| **Every day** | every day, weekends included |
+| **Every weekday** | Monday to Friday |
+| **Weekly on…** | the weekdays you tick — one, or several |
+| **Monthly on…** | a date of the month, 1–31 |
+
+A repeat is a property of the item, not a pile of copies: one item owns the whole
+series, so renaming it, recolouring it or changing how long it runs changes every
+occurrence at once, and the file stays one entry per piece of work. Deleting it takes
+the series with it.
+
+The item's scheduled time becomes the series' anchor — its **date** is the earliest day
+an occurrence can land on, so switching a rule on never backfills the weeks behind it,
+and its **time** is when they all start. Set an **until** date to stop the series;
+leave it blank and it runs on. A monthly rule on a date some months do not have — the
+31st — skips those months rather than sliding to the nearest day.
+
+Repeating blocks carry a ↻ and behave like any other on the calendar, with one
+difference that follows from being a series rather than a date: **dragging one moves
+the whole series.** Up and down sets the time of day for every occurrence. Across
+columns it retargets the rule where the rule has a single day to retarget — a weekly
+series on one day moves to the day you drop it on, a monthly one to that date. "Every
+day" and "every weekday" have no one day to move, so they ignore the sideways part and
+only take the time.
 
 ### Trash
 

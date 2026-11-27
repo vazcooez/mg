@@ -17,6 +17,50 @@ export const STATUS_COLOR: Record<ItemStatus, string> = {
 };
 
 /** A single todo item. Hierarchy is expressed via `parentId`; order is array order. */
+/* ------------------------------------------------------------- recurrence */
+
+export type RepeatUnit = 'daily' | 'weekdays' | 'weekly' | 'monthly';
+
+/**
+ * How an item repeats on the calendar.
+ *
+ * A repeat is a property of the item, not a set of copies: one item owns the
+ * whole series, so renaming or recolouring it changes every occurrence at once
+ * and the file stays one line per piece of work. The item's `scheduledAt` is
+ * the series' anchor — its date is the earliest day an occurrence can fall on,
+ * and its time is the time of day they all start at.
+ */
+export interface Repeat {
+  unit: RepeatUnit;
+  /** `weekly`: which weekdays, 0 = Monday … 6 = Sunday. */
+  days?: number[];
+  /** `monthly`: which date of the month, 1–31. */
+  dayOfMonth?: number;
+  /** Last day the series runs, `YYYY-MM-DD`; absent means it never stops. */
+  until?: string | null;
+}
+
+export const REPEAT_UNITS: RepeatUnit[] = ['daily', 'weekdays', 'weekly', 'monthly'];
+
+export const REPEAT_UNIT_LABEL: Record<RepeatUnit, string> = {
+  daily: 'Every day',
+  weekdays: 'Every weekday',
+  weekly: 'Weekly on…',
+  monthly: 'Monthly on…',
+};
+
+/** Monday-first, matching the calendar's own week. */
+export const WEEKDAY_INITIALS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+export const WEEKDAY_NAMES = [
+  'Monday',
+  'Tuesday',
+  'Wednesday',
+  'Thursday',
+  'Friday',
+  'Saturday',
+  'Sunday',
+];
+
 export interface TodoItem {
   id: string;
   parentId: string | null;
@@ -49,6 +93,12 @@ export interface TodoItem {
   scheduledAt: string | null;
   /** Length of the scheduled block, in minutes. */
   durationMin: number;
+  /**
+   * When set, the item recurs: `scheduledAt` stops being the one time it
+   * happens and becomes where the series starts and what time of day it runs.
+   * `null` is a one-off.
+   */
+  repeat: Repeat | null;
   /**
    * Whether this item gets a card in the Eisenhower matrix. Grouping parents
    * are often structure rather than work, so they can be kept off the board
