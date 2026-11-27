@@ -8,13 +8,20 @@ import {
   PROPERTY_TYPE_LABEL,
   PROPERTY_TYPES,
   PropertyType,
+  Repeat,
+  REPEAT_UNIT_LABEL,
+  REPEAT_UNITS,
+  RepeatUnit,
   round1,
   STATUS_COLOR,
   STATUS_LABEL,
   STATUSES,
   TodoDoc,
   TodoItem,
+  WEEKDAY_INITIALS,
+  WEEKDAY_NAMES,
 } from '../types';
+import { parseLocal, repeatDayOfMonth, repeatDays, weekdayIndex } from '../calendar';
 import * as S from '../store';
 import PropertyInput from './PropertyInput';
 
@@ -205,6 +212,8 @@ export default function Inspector({
           </div>
         </div>
 
+        <RepeatField doc={doc} item={item} />
+
         <div className="field">
           <label>Status</label>
           <div className="status-row">
@@ -387,5 +396,124 @@ export default function Inspector({
         </div>
       </div>
     </aside>
+  );
+}
+
+/**
+ * The recurrence rule for one item.
+ *
+ * A repeat belongs to the item rather than spawning copies, so there is one
+ * row here and not a list of dates: change the rule and every occurrence on
+ * the calendar follows. Switching it on with no slot yet gives the item one,
+ * because a rule with nothing to repeat from would do nothing at all.
+ */
+function RepeatField({ doc, item }: { doc: TodoDoc; item: TodoItem }) {
+  const start = parseLocal(item.scheduledAt) ?? new Date();
+  const repeat = item.repeat;
+
+  const set = (next: Repeat | null) => S.setRepeat(doc.id, item.id, next);
+
+  const pick = (unit: '' | RepeatUnit) => {
+    if (!unit) return set(null);
+    // Carry the days and date across a change of unit so flipping between
+    // Weekly and Monthly to compare them does not lose what was chosen.
+    const base: Repeat = { unit, until: repeat?.until ?? null };
+    if (unit === 'weekly') base.days = repeat?.days ?? [weekdayIndex(start)];
+    if (unit === 'monthly') base.dayOfMonth = repeat?.dayOfMonth ?? start.getDate();
+    set(base);
+  };
+
+  const toggleDay = (n: number) => {
+    if (!repeat) return;
+    const current = repeatDays(repeat, start);
+    const next = current.includes(n) ? current.filter((d) => d !== n) : [...current, n];
+    // Every weekday off would be a rule that never happens; the last one stays.
+    set({ ...repeat, days: next.length ? next.sort((a, b) => a - b) : current });
+  };
+
+  const chosenDays = repeat ? repeatDays(repeat, start) : [];
+
+  return (
+    <div className="field">
+      <label>
+        Repeats <span className="field-hint">calendar view</span>
+      </label>
+      <select
+        className="text-input"
+        value={repeat?.unit ?? ''}
+        onChange={(e) => pick(e.target.value as '' | RepeatUnit)}
+      >
+        <option value="">Does not repeat</option>
+        {REPEAT_UNITS.map((u) => (
+          <option key={u} value={u}>
+            {REPEAT_UNIT_LABEL[u]}
+          </option>
+        ))}
+      </select>
+
+      {repeat?.unit === 'weekly' && (
+        <div className="weekday-row">
+          {WEEKDAY_INITIALS.map((initial, n) => (
+            <button
+              key={WEEKDAY_NAMES[n]}
+              type="button"
+              className={`weekday-chip${chosenDays.includes(n) ? ' on' : ''}`}
+              title={WEEKDAY_NAMES[n]}
+              aria-pressed={chosenDays.includes(n)}
+              onClick={() => toggleDay(n)}
+            >
+              {initial}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {repeat?.unit === 'monthly' && (
+        <div className="slider-row">
+          <span className="field-hint">on day</span>
+          <input
+            className="num-input"
+            type="number"
+            min={1}
+            max={31}
+            value={repeatDayOfMonth(repeat, start)}
+            onChange={(e) =>
+              set({ ...repeat, dayOfMonth: clamp(Math.round(Number(e.target.value) || 1), 1, 31) })
+            }
+          />
+          <span className="field-hint">of the month</span>
+        </div>
+      )}
+
+      {repeat && (
+        <>
+          <div className="slider-row">
+            <span className="field-hint">until</span>
+            <input
+              className="text-input"
+              type="date"
+              value={repeat.until ?? ''}
+              onChange={(e) => set({ ...repeat, until: e.target.value || null })}
+            />
+            {repeat.until && (
+              <button
+                type="button"
+                className="row-btn"
+                title="Repeat with no end"
+                onClick={() => set({ ...repeat, until: null })}
+              >
+                ×
+              </button>
+            )}
+          </div>
+          <p className="field-hint">
+            Starts {start.toLocaleDateString()}; earlier days are left alone.
+            {repeat.unit === 'monthly' && repeatDayOfMonth(repeat, start) > 28
+              ? ' Months without that date are skipped.'
+              : ''}
+          </p>
+        </>
+      )}
+    </div>
   );
 }

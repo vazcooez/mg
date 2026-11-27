@@ -4011,6 +4011,67 @@ body.dragging .cal-event {
   word-break: break-word;
 }
 
+/* A repeating block says so, since the one item is standing in for a series
+   and deleting it takes every occurrence with it. */
+.cal-event-repeat {
+  position: absolute;
+  right: 4px;
+  bottom: 3px;
+  font-size: 10px;
+  line-height: 1;
+  color: var(--text-dim);
+  pointer-events: none;
+}
+
+/* The block being painted on empty grid: an outline, because it is not a real
+   item until the pointer comes up. */
+.cal-draft {
+  position: absolute;
+  left: 0;
+  width: calc(100% - 3px);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 3px 6px;
+  border-radius: 5px;
+  border: 1px dashed color-mix(in srgb, var(--accent) 75%, transparent);
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: var(--text);
+  pointer-events: none;
+  z-index: 4;
+}
+
+/* The seven weekday toggles of a weekly rule. */
+.weekday-row {
+  display: flex;
+  gap: 3px;
+  margin-top: 6px;
+}
+
+.weekday-chip {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 0;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--chrome);
+  color: var(--text-dim);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.weekday-chip:hover {
+  border-color: var(--accent-soft);
+  color: var(--text);
+}
+
+.weekday-chip.on {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 28%, transparent);
+  color: var(--text);
+}
+
 /* Grab strip along the bottom edge for changing duration. */
 .cal-resize {
   position: absolute;

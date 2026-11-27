@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { TodoDoc, TodoItem } from '../types';
+import { Repeat, TodoDoc, TodoItem } from '../types';
 import * as S from '../store';
 import {
   addDays,
   atMinutes,
   dayLabel,
+  describeRepeat,
   formatDateOnly,
   formatDuration,
   formatLocal,
@@ -12,12 +13,15 @@ import {
   minutesOfDay,
   MINUTES_PER_DAY,
   monthLabel,
+  occursOn,
   parseLocal,
+  repeatDays,
   sameDay,
   SLOT_MINUTES,
   snapMinutes,
   startOfDay,
   startOfWeek,
+  weekdayIndex,
 } from '../calendar';
 
 const HOUR_PX = 46;
@@ -32,8 +36,28 @@ interface Props {
 
 type Gesture =
   | null
-  | { kind: 'move'; id: string; grabMin: number; duration: number }
-  | { kind: 'resize'; id: string; startMin: number };
+  | {
+      kind: 'move';
+      id: string;
+      grabMin: number;
+      duration: number;
+      /** The rule, when this block is one occurrence of a series. */
+      repeat: Repeat | null;
+      /** Where the series starts; a repeat moves in time of day, not in date. */
+      anchorDay: Date;
+      fromCol: number;
+      col: number;
+    }
+  | { kind: 'resize'; id: string; startMin: number }
+  /** Painting a new block on empty grid: it stays in the column it began in. */
+  | { kind: 'create'; day: Date; col: number; fromMin: number; toMin: number };
+
+/** The block being painted, in minutes past midnight. */
+interface Draft {
+  col: number;
+  from: number;
+  span: number;
+}
 
 /** Events that overlap in time share the column width between them. */
 interface Placed {
@@ -102,6 +126,7 @@ export default function CalendarView({ doc, selectedId, onSelect }: Props) {
   const gesture = useRef<Gesture>(null);
   const [now, setNow] = useState(() => new Date());
   const [showRail, setShowRail] = useState(true);
+  const [draft, setDraft] = useState<Draft | null>(null);
   const dragUnscheduled = useRef<string | null>(null);
 
   const mode = doc.calMode ?? 'week';
@@ -118,14 +143,25 @@ export default function CalendarView({ doc, selectedId, onSelect }: Props) {
   const scheduled = useMemo(() => S.scheduledItems(doc), [doc]);
   const unscheduled = useMemo(() => S.unscheduledItems(doc), [doc]);
 
-  /** Placed events, per visible day. */
+  /**
+   * Placed events, per visible day. A repeating item has no copies to place —
+   * the rule is asked whether the series lands on this day, and if it does the
+   * block is drawn at the series' time of day.
+   */
   const perDay = useMemo(
     () =>
       days.map((day) =>
         packDay(
-          scheduled
-            .map((item) => ({ item, start: parseLocal(item.scheduledAt) }))
-            .filter((e): e is { item: TodoItem; start: Date } => Boolean(e.start && sameDay(e.start, day)))
+          scheduled.flatMap((item) => {
+            const start = parseLocal(item.scheduledAt);
+            if (!start) return [];
+            if (item.repeat) {
+              return occursOn(item.repeat, start, day)
+                ? [{ item, start: atMinutes(day, minutesOfDay(start)) }]
+                : [];
+            }
+            return sameDay(start, day) ? [{ item, start }] : [];
+          })
         )
       ),
     [days, scheduled]
@@ -156,7 +192,7 @@ export default function CalendarView({ doc, selectedId, onSelect }: Props) {
         Math.max(0, Math.floor(((clientX - r.left) / r.width) * days.length))
       );
       const minutes = Math.max(0, Math.min(MINUTES_PER_DAY, (clientY - r.top + grid.scrollTop) / PX_PER_MIN));
-      return { day: days[col], minutes };
+      return { day: days[col], col, minutes };
     },
     [days]
   );
@@ -170,11 +206,30 @@ export default function CalendarView({ doc, selectedId, onSelect }: Props) {
       const hit = hitTest(e.clientX, e.clientY);
       if (!hit) return;
 
+      if (g.kind === 'create') {
+        // The block grows from where the drag began and stays in that column:
+        // a new block is a span of time, and time runs down a single day.
+        g.toMin = snapMinutes(hit.minutes);
+        const span = Math.abs(g.toMin - g.fromMin);
+        setDraft(
+          span >= SLOT_MINUTES
+            ? { col: g.col, from: Math.min(g.fromMin, g.toMin), span }
+            : null
+        );
+        return;
+      }
+
       if (g.kind === 'move') {
         // Keep the grab offset so the block does not jump under the cursor.
         const startMin = snapMinutes(hit.minutes - g.grabMin);
-        const at = atMinutes(hit.day, Math.min(startMin, MINUTES_PER_DAY - g.duration));
-        S.setSchedule(doc.id, g.id, formatLocal(at), undefined, `cal:${g.id}`);
+        const clamped = Math.max(0, Math.min(startMin, MINUTES_PER_DAY - g.duration));
+        g.col = hit.col;
+        // A series is not in one place to be dragged out of, so moving an
+        // occurrence sets the time of day for all of them and leaves the date
+        // where the series starts. Which days it lands on is the rule's
+        // business, settled on release below.
+        const day = g.repeat ? g.anchorDay : hit.day;
+        S.setSchedule(doc.id, g.id, formatLocal(atMinutes(day, clamped)), undefined, `cal:${g.id}`);
       } else {
         const live = S.getWorkspace().docs.find((d) => d.id === doc.id);
         const item =
@@ -185,18 +240,54 @@ export default function CalendarView({ doc, selectedId, onSelect }: Props) {
         S.setDuration(doc.id, g.id, minutes, `caldur:${g.id}`);
       }
     };
+
     const up = () => {
-      if (!gesture.current) return;
+      const g = gesture.current;
+      if (!g) return;
       gesture.current = null;
       document.body.classList.remove('dragging');
+      setDraft(null);
+
+      if (g.kind === 'create') {
+        const span = Math.abs(g.toMin - g.fromMin);
+        // A press that never moved is a click, not a drag: leave it alone so
+        // the double-click that creates a default-length block still works.
+        if (span < SLOT_MINUTES) return;
+        const id = S.addItem(doc.id, null, {
+          title: 'New item',
+          status: 'scheduled',
+          scheduledAt: formatLocal(atMinutes(g.day, Math.min(g.fromMin, g.toMin))),
+          durationMin: span,
+        });
+        onSelect(id);
+        return;
+      }
+
+      // Dropping an occurrence in another column retargets the rule, where the
+      // rule has a day to retarget: a weekly series on one day moves to the
+      // day it was dropped on, and a monthly one to that date. "Every day" and
+      // "every weekday" have no single day to move, so the column is ignored.
+      if (g.kind === 'move' && g.repeat && g.col !== g.fromCol) {
+        const day = days[g.col];
+        const anchor = parseLocal(
+          S.findItem(S.getWorkspace(), doc.id, g.id)?.scheduledAt ?? null
+        );
+        if (!day || !anchor) return;
+        if (g.repeat.unit === 'weekly' && repeatDays(g.repeat, anchor).length === 1) {
+          S.setRepeat(doc.id, g.id, { ...g.repeat, days: [weekdayIndex(day)] });
+        } else if (g.repeat.unit === 'monthly') {
+          S.setRepeat(doc.id, g.id, { ...g.repeat, dayOfMonth: day.getDate() });
+        }
+      }
     };
+
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up);
     return () => {
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', up);
     };
-  }, [doc.id, hitTest]);
+  }, [doc.id, hitTest, days, onSelect]);
 
   const label =
     mode === 'day'
@@ -244,7 +335,7 @@ export default function CalendarView({ doc, selectedId, onSelect }: Props) {
         >
           To schedule ({unscheduled.length})
         </button>
-        <span className="tb-hint">drag to move · drag the bottom edge to change duration</span>
+        <span className="tb-hint">drag empty grid to create · drag to move · drag the bottom edge to resize</span>
       </div>
 
       <div className="cal-body">
@@ -294,6 +385,17 @@ export default function CalendarView({ doc, selectedId, onSelect }: Props) {
                 <div
                   key={day.toISOString()}
                   className={`cal-col${sameDay(day, now) ? ' today' : ''}`}
+                  onPointerDown={(e) => {
+                    // Only on empty grid, and only with the primary button:
+                    // a press on a block is that block's own gesture.
+                    if (e.button !== 0 || e.target !== e.currentTarget) return;
+                    const hit = hitTest(e.clientX, e.clientY);
+                    if (!hit) return;
+                    e.preventDefault();
+                    const from = snapMinutes(hit.minutes);
+                    gesture.current = { kind: 'create', day, col, fromMin: from, toMin: from };
+                    document.body.classList.add('dragging');
+                  }}
                   onDoubleClick={(e) => {
                     if (e.target !== e.currentTarget) return;
                     const hit = hitTest(e.clientX, e.clientY);
@@ -323,7 +425,7 @@ export default function CalendarView({ doc, selectedId, onSelect }: Props) {
                         }}
                         title={`${p.item.title}\n${formatRange(p.start, p.item.durationMin)} · ${formatDuration(
                           p.item.durationMin
-                        )}`}
+                        )}${p.item.repeat ? `\n${describeRepeat(p.item.repeat, p.start)}` : ''}`}
                         onPointerDown={(e) => {
                           if ((e.target as HTMLElement).closest('.cal-resize')) return;
                           e.stopPropagation();
@@ -335,12 +437,17 @@ export default function CalendarView({ doc, selectedId, onSelect }: Props) {
                             id: p.item.id,
                             grabMin: hit.minutes - minutesOfDay(p.start),
                             duration: Math.max(MIN_DURATION, p.item.durationMin),
+                            repeat: p.item.repeat,
+                            anchorDay: startOfDay(parseLocal(p.item.scheduledAt) ?? p.start),
+                            fromCol: col,
+                            col,
                           };
                           document.body.classList.add('dragging');
                         }}
                       >
                         <span className="cal-event-time">{formatRange(p.start, p.item.durationMin)}</span>
                         <span className="cal-event-title">{p.item.title}</span>
+                        {p.item.repeat && <span className="cal-event-repeat" aria-hidden="true">↻</span>}
                         <span
                           className="cal-resize"
                           title="Drag to change duration"
@@ -365,6 +472,18 @@ export default function CalendarView({ doc, selectedId, onSelect }: Props) {
 
                   {sameDay(day, now) && (
                     <div className="cal-now" style={{ top: minutesOfDay(now) * PX_PER_MIN }} />
+                  )}
+
+                  {draft && draft.col === col && (
+                    <div
+                      className="cal-draft"
+                      style={{ top: draft.from * PX_PER_MIN, height: draft.span * PX_PER_MIN }}
+                    >
+                      <span className="cal-event-time">
+                        {formatRange(atMinutes(day, draft.from), draft.span)}
+                      </span>
+                      <span className="cal-event-title">{formatDuration(draft.span)}</span>
+                    </div>
                   )}
                 </div>
               ))}
