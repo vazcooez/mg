@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Repeat, TodoDoc, TodoItem } from '../types';
 import * as S from '../store';
+import ContextMenu, { MenuState } from './ContextMenu';
 import {
   addDays,
   atMinutes,
@@ -127,6 +128,7 @@ export default function CalendarView({ doc, selectedId, onSelect }: Props) {
   const [now, setNow] = useState(() => new Date());
   const [showRail, setShowRail] = useState(true);
   const [draft, setDraft] = useState<Draft | null>(null);
+  const [menu, setMenu] = useState<MenuState | null>(null);
   const dragUnscheduled = useRef<string | null>(null);
 
   const mode = doc.calMode ?? 'week';
@@ -180,6 +182,101 @@ export default function CalendarView({ doc, selectedId, onSelect }: Props) {
   }, []);
 
   const setAnchor = (d: Date) => S.setCalendarAnchor(doc.id, formatDateOnly(d));
+
+  /**
+   * Trashing an item from the calendar. A repeat is one item standing in for a
+   * series, so there is no single occurrence to remove — the confirmation says
+   * so rather than letting the whole series vanish on a keystroke meant for one
+   * block.
+   */
+  const removeItem = useCallback(
+    (item: TodoItem) => {
+      const kids = S.descendantIds(doc.items, item.id).length;
+      const what = kids
+        ? `"${item.title}" and ${kids} descendant${kids === 1 ? '' : 's'}`
+        : `"${item.title}"`;
+      const series = item.repeat ? ' Every occurrence goes with it.' : '';
+      if (!confirm(`Move ${what} to this document's trash?${series}`)) return;
+      S.deleteItem(doc.id, item.id);
+      onSelect(null);
+    },
+    [doc.id, doc.items, onSelect]
+  );
+
+  // Delete removes the selected block, as it does on the matrix and the tree.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Delete' && e.key !== 'Backspace') return;
+      if (!selectedId) return;
+      // Chords belong to the app and the menu, and a Delete aimed at text in
+      // the inspector is not aimed at the block behind it.
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      const el = document.activeElement;
+      if (
+        el instanceof HTMLElement &&
+        (el.tagName === 'INPUT' ||
+          el.tagName === 'TEXTAREA' ||
+          el.tagName === 'SELECT' ||
+          el.isContentEditable)
+      ) {
+        return;
+      }
+      const item = doc.items.find((i) => i.id === selectedId);
+      if (!item) return;
+      e.preventDefault();
+      removeItem(item);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [doc.items, selectedId, removeItem]);
+
+  /** Right-clicking a block: the things you reach for with one in front of you. */
+  const eventMenu = (item: TodoItem, x: number, y: number): MenuState => ({
+    x,
+    y,
+    entries: [
+      {
+        label: item.status === 'done' ? 'Mark as scheduled' : 'Mark done',
+        run: () => S.updateItem(doc.id, item.id, { status: item.status === 'done' ? 'scheduled' : 'done' }),
+      },
+      { separator: true },
+      ...[30, 60, 120].map((minutes) => ({
+        label: formatDuration(minutes),
+        detail: item.durationMin === minutes ? '✓' : undefined,
+        run: () => S.setDuration(doc.id, item.id, minutes),
+      })),
+      { separator: true },
+      ...(item.repeat
+        ? [
+            {
+              label: `Stop repeating (${describeRepeat(item.repeat, parseLocal(item.scheduledAt) ?? new Date())})`,
+              run: () => S.setRepeat(doc.id, item.id, null),
+            },
+          ]
+        : [
+            { label: 'Repeat every day', run: () => S.setRepeat(doc.id, item.id, { unit: 'daily' }) },
+            {
+              label: 'Repeat every weekday',
+              run: () => S.setRepeat(doc.id, item.id, { unit: 'weekdays' }),
+            },
+          ]),
+      {
+        label: 'Take off the calendar',
+        detail: 'keeps the item',
+        run: () => {
+          S.setSchedule(doc.id, item.id, null);
+          if (selectedId === item.id) onSelect(null);
+        },
+      },
+      { separator: true },
+      {
+        label: S.descendantIds(doc.items, item.id).length ? 'Delete (with children)' : 'Delete',
+        detail: 'Del',
+        danger: true,
+        run: () => removeItem(item),
+      },
+    ],
+  });
 
   /** Which day column and minute a pointer position falls in. */
   const hitTest = useCallback(
@@ -335,7 +432,7 @@ export default function CalendarView({ doc, selectedId, onSelect }: Props) {
         >
           To schedule ({unscheduled.length})
         </button>
-        <span className="tb-hint">drag empty grid to create · drag to move · drag the bottom edge to resize</span>
+        <span className="tb-hint">drag empty grid to create · drag to move · drag the bottom edge to resize · right-click or Del to remove</span>
       </div>
 
       <div className="cal-body">
@@ -396,6 +493,30 @@ export default function CalendarView({ doc, selectedId, onSelect }: Props) {
                     gesture.current = { kind: 'create', day, col, fromMin: from, toMin: from };
                     document.body.classList.add('dragging');
                   }}
+                  onContextMenu={(e) => {
+                    if (e.target !== e.currentTarget) return;
+                    const hit = hitTest(e.clientX, e.clientY);
+                    if (!hit) return;
+                    e.preventDefault();
+                    const at = formatLocal(atMinutes(hit.day, snapMinutes(hit.minutes)));
+                    setMenu({
+                      x: e.clientX,
+                      y: e.clientY,
+                      entries: [
+                        {
+                          label: 'New item here',
+                          run: () =>
+                            onSelect(
+                              S.addItem(doc.id, null, {
+                                title: 'New item',
+                                status: 'scheduled',
+                                scheduledAt: at,
+                              })
+                            ),
+                        },
+                      ],
+                    });
+                  }}
                   onDoubleClick={(e) => {
                     if (e.target !== e.currentTarget) return;
                     const hit = hitTest(e.clientX, e.clientY);
@@ -426,10 +547,20 @@ export default function CalendarView({ doc, selectedId, onSelect }: Props) {
                         title={`${p.item.title}\n${formatRange(p.start, p.item.durationMin)} · ${formatDuration(
                           p.item.durationMin
                         )}${p.item.repeat ? `\n${describeRepeat(p.item.repeat, p.start)}` : ''}`}
+                        onContextMenu={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          onSelect(p.item.id);
+                          setMenu(eventMenu(p.item, e.clientX, e.clientY));
+                        }}
                         onPointerDown={(e) => {
                           if ((e.target as HTMLElement).closest('.cal-resize')) return;
                           e.stopPropagation();
                           onSelect(p.item.id);
+                          // Only the primary button drags; the others belong to
+                          // the context menu, which must not drag the block it
+                          // is about to act on.
+                          if (e.button !== 0) return;
                           const hit = hitTest(e.clientX, e.clientY);
                           if (!hit) return;
                           gesture.current = {
@@ -536,6 +667,8 @@ export default function CalendarView({ doc, selectedId, onSelect }: Props) {
           </aside>
         )}
       </div>
+
+      {menu && <ContextMenu state={menu} onClose={() => setMenu(null)} />}
     </div>
   );
 }

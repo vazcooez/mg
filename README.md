@@ -293,6 +293,11 @@ without a start is simply unscheduled. Day and week views, `‹` / `›` to step
   by workflow status — what you schedule is the important-but-not-urgent work, which is
   the whole point of the second quadrant.
 - Blocks carry their item's colour, so the week reads the same way the matrix does.
+- **`Delete` removes the selected block**, and **right-click** opens a menu on it: mark
+  it done, set it to 30m / 1h / 2h, start or stop a repeat, take it off the calendar
+  while keeping the item, or delete it. Deleting goes to the document's trash after a
+  confirmation, like everywhere else — nothing is destroyed outright. Right-click empty
+  grid to put a new item at that time.
 
 ### Repeating work
 
